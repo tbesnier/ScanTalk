@@ -1,5 +1,5 @@
 import torch.nn as nn
-from S2L.wav2vec import Wav2Vec2Model
+from ..wav2vec import Wav2Vec2Model
 
 class Speech2Land(nn.Module):
     def __init__(self, args):
