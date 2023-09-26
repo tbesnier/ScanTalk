@@ -7,7 +7,7 @@ import pickle
 from tqdm import tqdm
 from transformers import Wav2Vec2Processor
 import librosa
-from S2L.vocaset import Get_landmarks as Get_landmarks
+from model.S2L import Get_landmarks as Get_landmarks
 
 
 class Dataset(data.Dataset):
