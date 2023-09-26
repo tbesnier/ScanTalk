@@ -1,2 +1,4 @@
 Download the files from [here](https://download.is.tue.mpg.de/download.php?domain=voca&resume=1&sfile=trainingdata.zip).
 
+The function that you need to call inside process_voca_data.py is generate_vertices_npy()
+
