@@ -123,18 +123,14 @@ def train(args):
     tD[0] = tD[0][:, :, 1:]
     tU[0] = tU[0][:, 1:, :]
     
-    dataset_train = new_data_loader.TH_Dataset(args.dataset_dir_audios_0, 
-                                               args.dataset_dir_audios_1, 
-                                               args.dataset_dir_audios_2, 
+    dataset_train = new_data_loader.TH_Dataset(args.dataset_dir_audios, 
                                                args.dataset_dir_frame, 
                                                args.dataset_dir_next_frame, 
                                                args.dataset_dir_actor,
                                                0,
                                                100000)
     
-    dataset_test = new_data_loader.TH_Dataset(args.dataset_dir_audios_0, 
-                                              args.dataset_dir_audios_1, 
-                                              args.dataset_dir_audios_2, 
+    dataset_test = new_data_loader.TH_Dataset(args.dataset_dir_audios,
                                               args.dataset_dir_frame, 
                                               args.dataset_dir_next_frame, 
                                               args.dataset_dir_actor,
@@ -174,13 +170,11 @@ def train(args):
         pbar_talk = tqdm(enumerate(dataloader_train), total=len(dataloader_train))
         for b, sample in pbar_talk:
             optim.zero_grad()
-            audio_0 = sample['audio_0'].to(device)
-            audio_1 = sample['audio_1'].to(device)
-            audio_2 = sample['audio_2'].to(device)
+            audio = sample['audio'].to(device)
             frame = sample['frame'].to(device)
             next_frame = sample['next_frame'].to(device)
             actor = sample['actor'].to(device)
-            next_frame_pred = d2d.forward(audio_0, audio_1, audio_2, frame, actor)
+            next_frame_pred = d2d.forward(audio, frame, actor)
             loss = criterion(next_frame, next_frame_pred)
             loss.backward()
             optim.step()
@@ -195,13 +189,11 @@ def train(args):
                 t_test_loss = 0
                 pbar_talk = tqdm(enumerate(dataloader_test), total=len(dataloader_test))
                 for b, sample in pbar_talk:
-                    audio_0 = sample['audio_0'].to(device)
-                    audio_1 = sample['audio_1'].to(device)
-                    audio_2 = sample['audio_2'].to(device)
+                    audio = sample['audio'].to(device)
                     frame = sample['frame'].to(device)
                     next_frame = sample['next_frame'].to(device)
                     actor = sample['actor'].to(device)
-                    next_frame_pred = d2d.forward(audio_0, audio_1, audio_2, frame, actor)
+                    next_frame_pred = d2d.forward(audio, frame, actor)
                     loss = criterion(next_frame, next_frame_pred)
                     t_test_loss += loss
                     pbar_talk.set_description(
@@ -218,10 +210,10 @@ def train(args):
                 
                 gen_seq = gen_seq.cpu().detach().numpy()
                 
-                os.mkdir('/home/federico/Scrivania/ScanTalk/Results_Actor_WavLM_More_Audio/Meshes/' + str(epoch))
+                os.mkdir('/home/federico/Scrivania/ScanTalk/Results_Actor_WavLM_Masked_Loss_Only_Displacements/Meshes/' + str(epoch))
                 for m in range(len(gen_seq)):
                     mesh = trimesh.Trimesh(gen_seq[m], template_tri)
-                    mesh.export('/home/federico/Scrivania/ScanTalk/Results_Actor_WavLM_More_Audio/Meshes/' + str(epoch) + '/frame_' + str(m).zfill(3) + '.ply')
+                    mesh.export('/home/federico/Scrivania/ScanTalk/Results_Actor_WavLM_Masked_Loss_Only_Displacements/Meshes/' + str(epoch) + '/frame_' + str(m).zfill(3) + '.ply')
                 
                 #Sample from training set
                 speech_array, sampling_rate = librosa.load(args.training_sample_audio, sr=16000)
@@ -240,15 +232,15 @@ def train(args):
                 
                 gen_seq = gen_seq.cpu().detach().numpy()
                 
-                os.mkdir('/home/federico/Scrivania/ScanTalk/Results_Actor_WavLM_More_Audio/Meshes_Training/' + str(epoch))
+                os.mkdir('/home/federico/Scrivania/ScanTalk/Results_Actor_WavLM_Masked_Loss_Only_Displacements/Meshes_Training/' + str(epoch))
                 for m in range(len(gen_seq)):
                     mesh = trimesh.Trimesh(gen_seq[m], template_tri)
-                    mesh.export('/home/federico/Scrivania/ScanTalk/Results_Actor_WavLM_More_Audio/Meshes_Training/' + str(epoch) + '/frame_' + str(m).zfill(3) + '.ply')
+                    mesh.export('/home/federico/Scrivania/ScanTalk/Results_Actor_WavLM_Masked_Loss_Only_Displacements/Meshes_Training/' + str(epoch) + '/frame_' + str(m).zfill(3) + '.ply')
             
         torch.save({'epoch': epoch,
                     'autoencoder_state_dict': d2d.state_dict(),
                     'optimizer_state_dict': optim.state_dict(),
-                    }, os.path.join(args.result_dir, 'd2d_ScanTalk_new_training_strat_disp_with_Actor.pth.tar'))
+                    }, os.path.join(args.result_dir, 'd2d_ScanTalk_new_training_strat_disp.pth.tar'))
             
             
 
@@ -258,19 +250,17 @@ def main():
     parser.add_argument("--reference_mesh_file", type=str, default='/home/federico/Scrivania/D2D/template/flame_model/FLAME_sample.ply', help='path of the template')
     parser.add_argument("--epochs", type=int, default=300, help='number of epochs')
     parser.add_argument("--device", type=str, default="cuda:0")
-    parser.add_argument("--dataset_dir_audios_0", type=str, default='/home/federico/Scrivania/ScanTalk/Consecutive_Dataset_WavLM/Audio_Snippet_0')
-    parser.add_argument("--dataset_dir_audios_1", type=str, default='/home/federico/Scrivania/ScanTalk/Consecutive_Dataset_WavLM/Audio_Snippet_1')
-    parser.add_argument("--dataset_dir_audios_2", type=str, default='/home/federico/Scrivania/ScanTalk/Consecutive_Dataset_WavLM/Audio_Snippet_2')
+    parser.add_argument("--dataset_dir_audios", type=str, default='/home/federico/Scrivania/ScanTalk/Consecutive_Dataset_WavLM/Audio_Snippet')
     parser.add_argument("--dataset_dir_frame", type=str, default='/home/federico/Scrivania/ScanTalk/Consecutive_Dataset_WavLM/Frame')
     parser.add_argument("--dataset_dir_actor", type=str, default='/home/federico/Scrivania/ScanTalk/Consecutive_Dataset_WavLM/Actor')
     parser.add_argument("--dataset_dir_next_frame", type=str, default='/home/federico/Scrivania/ScanTalk/Consecutive_Dataset_WavLM/Next_Frame')
-    parser.add_argument("--result_dir", type=str, default='/home/federico/Scrivania/ScanTalk/Results_Actor_WavLM_More_Audio/Models')
+    parser.add_argument("--result_dir", type=str, default='/home/federico/Scrivania/ScanTalk/Results_Actor_WavLM_Masked_Loss_Only_Displacements/Models')
     parser.add_argument("--sample_audio", type=str, default='/home/federico/Scrivania/TH/photo.wav')
     parser.add_argument("--training_sample_audio", type=str, default='/home/federico/Scrivania/ScanTalk/wav/FaceTalk_170725_00137_TA_sentence01.wav')
-    parser.add_argument("--template_file", type=str, default="/home/federico/Scrivania/ScanTalk/vocaset/templates.pkl", help='faces to animate')
+    parser.add_argument("--template_file", type=str, default="/home/federico/Scrivania/ScanTalk/ScanTalk/vocaset/templates.pkl", help='faces to animate')
     parser.add_argument("--training_sample_face", type=str, default="FaceTalk_170725_00137_TA", help='face to animate')
     parser.add_argument("--load_model", type=bool, default=False)
-    parser.add_argument("--model_path", type=str, default='/home/federico/Scrivania/ScanTalk/ScanTalk/Results_Actor/Models/d2d_ScanTalk_new_training_strat_disp.pth.tar')
+    parser.add_argument("--model_path", type=str, default='/home/federico/Scrivania/ScanTalk/Results_Actor_WavLM_Masked_Loss_Only_Displacements/Models/d2d_ScanTalk_new_training_strat_disp.pth.tar')
     parser.add_argument("--mask_path", type=str, default='/home/federico/Scrivania/ScanTalk/ScanTalk/mouth_region_registered_idx.npy')
 
     args = parser.parse_args()

@@ -11,8 +11,6 @@ from model import Speech2Land
 #lllllll
 
 
-#hyy7yy8
-
 def trainer(args, train_loader, dev_loader, model, optimizer, criterion, epoch):
     save_path = args.save_path
     if not os.path.exists(save_path):
