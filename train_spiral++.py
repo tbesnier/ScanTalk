@@ -11,29 +11,35 @@ from torch.utils.data import DataLoader
 from sklearn.metrics.pairwise import euclidean_distances
 import argparse
 from tqdm import tqdm
-from d2d import SpiralAutoencoder
+#from d2d import SpiralAutoencoder
+from d2d_plus import SpiralAutoencoder
 #from transformers import AutoProcessor
 import librosa
 #from wavlm import WavLMModel
 from transformers import Wav2Vec2Processor
 from wav2vec import Wav2Vec2Model
+from psbody.mesh import Mesh
+from utils import utils, mesh_sampling
 
 class Masked_Loss(nn.Module):
     def __init__(self, args):
         super(Masked_Loss, self).__init__()
         self.indices = np.load(args.mask_path)
-        self.weights = torch.zeros((5023, 3))
-        self.weights[self.indices] = 1
-        self.weights = self.weights.to(args.device) 
+        self.mask = torch.zeros((5023, 3))
+        self.mask[self.indices] = 1
+        self.mask = self.mask.to(args.device)
         self.mse = nn.MSELoss(reduction='none')
         self.number_of_indices = self.indices.shape[0]
 
+        self.weights = np.load('./template/template/Normalized_d_weights.npy', allow_pickle=True)
+        self.weights = torch.from_numpy(self.weights[:-1]).float().to(args.device)
+
     def forward(self, predictions, target):
-        mb = predictions.shape[0]
+        #mb = predictions.shape[0]
         rec_loss = torch.mean(self.mse(predictions, target))
 
-        mouth_rec_loss = torch.sum(self.mse(predictions * self.weights, target * self.weights)) / (
-                    self.number_of_indices * mb)
+        #mouth_rec_loss = torch.sum(self.mse(predictions * self.mask, target * self.weights)) / (
+        #           self.number_of_indices * mb)
 
         #prediction_shift = predictions[:, 1:, :] - predictions[:, :-1, :]
         #target_shift = target[:, 1:, :] - target[:, :-1, :]
@@ -41,15 +47,16 @@ class Masked_Loss(nn.Module):
         #vel_loss = torch.mean(
         #    (self.mse(prediction_shift, target_shift)))
 
-        return mouth_rec_loss + rec_loss# + mouth_rec_loss #+ vel_loss
+        return rec_loss# + mouth_rec_loss# + 0.2*vel_loss
 
+    def forward_weighted(self, predictions, target):
+
+        L = (torch.matmul(self.weights, self.mse(predictions, target))).mean()
+
+        return L
 
 def train(args):
-    filter_sizes_enc = [[3, 64, 64, 64, 128], [[], [], [], [], []]]
-    filter_sizes_dec = [[128, 64, 32, 32, 16], [[], [], [], [], 3]]
-    latent_size = 32
-    step_sizes = [2, 2, 1, 1, 1]
-    dilation = [2, 2, 1, 1, 1]
+
     device = args.device
     if not os.path.exists(args.result_dir):
         os.makedirs(args.result_dir)
@@ -58,9 +65,6 @@ def train(args):
     processor = Wav2Vec2Processor.from_pretrained("facebook/wav2vec2-base-960h")
 
     meshpackage = 'trimesh'
-
-    ds_factors = [4, 4, 4, 4]
-    reference_points = [[3567, 4051, 4597]]
 
     shapedata = shape_data.ShapeData(nVal=100,
                               reference_mesh_file=args.reference_mesh_file,
@@ -74,68 +78,59 @@ def train(args):
     template_tri = reference.faces
     template_vertices = torch.tensor(reference.vertices).unsqueeze(0).to(args.device)
 
-    with open('./template/template/downsampling_matrices.pkl', 'rb') as fp:
-        downsampling_matrices = pickle.load(fp)
+    # generate/load transform matrices
+    transform_fp = './template/template/transform.pkl'
+    template_fp = args.reference_mesh_file
+    if not os.path.exists(transform_fp):
+        print('Generating transform matrices...')
+        mesh = Mesh(filename=template_fp)
+        ds_factors = [4, 4, 4, 4]
+        _, A, D, U, F, V = mesh_sampling.generate_transform_matrices(
+            mesh, ds_factors)
+        tmp = {
+            'vertices': V,
+            'face': F,
+            'adj': A,
+            'down_transform': D,
+            'up_transform': U
+        }
+        print(tmp)
 
-    M_verts_faces = downsampling_matrices['M_verts_faces']
-    M = [trimesh.base.Trimesh(vertices=M_verts_faces[i][0], faces=M_verts_faces[i][1], process=False) for i in range(len(M_verts_faces))]
+        with open(transform_fp, 'wb') as fp:
+            pickle.dump(tmp, fp)
+        print('Done!')
+        print('Transform matrices are saved in \'{}\''.format(transform_fp))
+    else:
+        with open(transform_fp, 'rb') as f:
+            tmp = pickle.load(f, encoding='latin1')
 
-    A = downsampling_matrices['A']
-    D = downsampling_matrices['D']
-    U = downsampling_matrices['U']
-    F = downsampling_matrices['F']
+    spiral_indices_list = [
+        utils.preprocess_spiral(tmp['face'][idx], args.seq_length[idx],
+                                tmp['vertices'][idx],
+                                args.dilation[idx]).to(device)
+        for idx in range(len(tmp['face']) - 1)
+    ]
+    down_transform_list = [
+        utils.to_sparse(down_transform).to(device)
+        for down_transform in tmp['down_transform']
+    ]
+    up_transform_list = [
+        utils.to_sparse(up_transform).to(device)
+        for up_transform in tmp['up_transform']
+    ]
 
-    for i in range(len(ds_factors)):
-        dist = euclidean_distances(M[i + 1].vertices, M[0].vertices[reference_points[0]])
-        reference_points.append(np.argmin(dist, axis=0).tolist())
-
-    Adj, Trigs = spiral_utils.get_adj_trigs(A, F, shapedata.reference_mesh, meshpackage='trimesh')
-
-    spirals_np, spiral_sizes, spirals = spiral_utils.generate_spirals(step_sizes,
-                                                            M, Adj, Trigs,
-                                                            reference_points = reference_points,
-                                                            dilation = dilation, random = False,
-                                                            meshpackage = 'trimesh',
-                                                            counter_clockwise = True)
-
-    spirals_np[0] = spirals_np[0][:, :-1, :]
-    sizes = [x.vertices.shape[0] for x in M]
-
-
-    tspirals = [torch.from_numpy(s).long().to(device) for s in spirals_np]
-
-    bU = []
-    bD = []
-    for i in range(len(D)):
-        d = np.zeros((1, D[i].shape[0] + 1, D[i].shape[1] + 1))
-        u = np.zeros((1, U[i].shape[0] + 1, U[i].shape[1] + 1))
-        d[0, :-1, :-1] = D[i].todense()
-        u[0, :-1, :-1] = U[i].todense()
-        d[0, -1, -1] = 1
-        u[0, -1, -1] = 1
-        bD.append(d)
-        bU.append(u)
-
-
-    tD = [torch.from_numpy(s).float().to(device) for s in bD]
-    tU = [torch.from_numpy(s).float().to(device) for s in bU]
-
-    tD[0] = tD[0][:, :, 1:]
-    tU[0] = tU[0][:, 1:, :]
     
-    dataset_train = new_data_loader.TH_Dataset(args.dataset_dir_audios, 
-                                               args.dataset_dir_frame, 
-                                               args.dataset_dir_next_frame, 
+    dataset_train = new_data_loader.TH_seq_Dataset(args.dataset_dir_audios,
+                                               args.dataset_dir_frame,
                                                args.dataset_dir_actor,
-                                               0,
-                                               100000)
+                                               10,
+                                               110000)
     
-    dataset_test = new_data_loader.TH_Dataset(args.dataset_dir_audios,
-                                              args.dataset_dir_frame, 
-                                              args.dataset_dir_next_frame, 
+    dataset_test = new_data_loader.TH_seq_Dataset(args.dataset_dir_audios,
+                                              args.dataset_dir_frame,
                                               args.dataset_dir_actor,
                                               100000,
-                                              121000)
+                                              121400)
 
 
     dataloader_train = DataLoader(dataset_train, batch_size=32,
@@ -143,10 +138,11 @@ def train(args):
     
     dataloader_test = DataLoader(dataset_test, batch_size=32,
                                  shuffle=True, num_workers=4)
-    
 
-    d2d = SpiralAutoencoder(filters_enc=filter_sizes_enc, filters_dec=filter_sizes_dec, latent_size=latent_size,
-    sizes=sizes, spiral_sizes=spiral_sizes, spirals=tspirals, D=tD, U=tU, device=device).to(device)
+
+    d2d = SpiralAutoencoder(args.in_channels, args.out_channels, args.latent_channels,
+           spiral_indices_list, down_transform_list,
+           up_transform_list).to(device)
 
     starting_epoch = 0
     if args.load_model == True:
@@ -155,9 +151,9 @@ def train(args):
         starting_epoch = checkpoint['epoch']
         print(starting_epoch)
     
-    criterion = Masked_Loss(args)#nn.MSELoss()
+    criterion = Masked_Loss(args) #Masked_Loss(args)  # nn.MSELoss()
 
-    optim = torch.optim.Adam(d2d.parameters(), lr=args.lr, weight_decay=args.weight_decay)
+    optim = torch.optim.Adam(d2d.parameters(), lr=args.lr)
 
     for epoch in range(starting_epoch, args.epochs):
         d2d.train()
@@ -165,12 +161,15 @@ def train(args):
         pbar_talk = tqdm(enumerate(dataloader_train), total=len(dataloader_train))
         for b, sample in pbar_talk:
             optim.zero_grad()
-            audio = sample['audio'].to(device)
+            audio, next_audio = sample['audio'].to(device), sample['next_audio'].to(device)
+            #print(audio.shape)
             frame = sample['frame'].to(device)
-            next_frame = sample['next_frame'].to(device)
+            #next_frame = sample['next_frame'].to(device)
             actor = sample['actor'].to(device)
-            next_frame_pred = d2d.forward(audio, frame, actor)
-            loss = criterion(next_frame, next_frame_pred)
+            frame_pred = d2d.forward(audio, actor)
+            #next_frame_pred = d2d.forward(next_audio, actor)
+            loss = criterion.forward_weighted(frame, frame_pred) + criterion(frame_pred - actor, frame - actor)
+            torch.nn.utils.clip_grad_norm_(d2d.parameters(), 10.0)
             loss.backward()
             optim.step()
             tloss += loss
@@ -184,12 +183,12 @@ def train(args):
                 t_test_loss = 0
                 pbar_talk = tqdm(enumerate(dataloader_test), total=len(dataloader_test))
                 for b, sample in pbar_talk:
-                    audio = sample['audio'].to(device)
+                    audio, next_audio = sample['audio'].to(device), sample['next_audio'].to(device)
                     frame = sample['frame'].to(device)
-                    next_frame = sample['next_frame'].to(device)
+                    # next_frame = sample['next_frame'].to(device)
                     actor = sample['actor'].to(device)
-                    next_frame_pred = d2d.forward(audio, frame, actor)
-                    loss = criterion(next_frame, next_frame_pred)
+                    frame_pred = d2d.forward(audio, actor)
+                    loss = criterion(frame, frame_pred)
                     t_test_loss += loss
                     pbar_talk.set_description(
                                     "(Epoch {}) TEST LOSS:{:.10f}".format((epoch + 1), (t_test_loss)/(b+1)))
@@ -201,7 +200,7 @@ def train(args):
                 audio_feature = torch.FloatTensor(audio_feature)
                 hidden_states = audio_encoder(audio_feature).last_hidden_state.to(args.device)
                 
-                gen_seq = d2d.predict(hidden_states, template_vertices.float())
+                gen_seq = d2d.predict_new(hidden_states, template_vertices.float(), )
                 
                 gen_seq = gen_seq.cpu().detach().numpy()
                 
@@ -223,7 +222,7 @@ def train(args):
                 
                 face = torch.tensor(face).to(args.device)
                 
-                gen_seq = d2d.predict(hidden_states, face.float().unsqueeze(0))
+                gen_seq = d2d.predict_new(hidden_states, face.float().unsqueeze(0))
                 
                 gen_seq = gen_seq.cpu().detach().numpy()
                 
@@ -241,7 +240,7 @@ def train(args):
 
 def main():
     parser = argparse.ArgumentParser(description='D2D: Dense to Dense Encoder-Decoder')
-    parser.add_argument("--lr", type=float, default=0.0005, help='learning rate')
+    parser.add_argument("--lr", type=float, default=0.00005, help='learning rate')
     parser.add_argument('--weight_decay', type=float, default=0)
     parser.add_argument("--reference_mesh_file", type=str, default='./template/flame_model/FLAME_sample.ply', help='path of the template')
     parser.add_argument("--epochs", type=int, default=200, help='number of epochs')
@@ -258,6 +257,16 @@ def main():
     parser.add_argument("--load_model", type=bool, default=False)
     parser.add_argument("--model_path", type=str, default='../Data/VOCA/res/Results_Actor/Models/d2d_ScanTalk_new_training_strat_disp.pth.tar')
     parser.add_argument("--mask_path", type=str, default='./mouth_region_registered_idx.npy')
+
+    ##Spiral++ hyperparameters
+    parser.add_argument('--out_channels',
+                        nargs='+',
+                        default=[64, 128, 128, 256],
+                        type=int)
+    parser.add_argument('--latent_channels', type=int, default=64)
+    parser.add_argument('--in_channels', type=int, default=3)
+    parser.add_argument('--seq_length', type=int, default=[12, 12, 12, 12], nargs='+')
+    parser.add_argument('--dilation', type=int, default=[1, 1, 1, 1], nargs='+')
 
     args = parser.parse_args()
 
