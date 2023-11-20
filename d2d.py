@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+import time
 
 import pdb
 
@@ -108,12 +109,8 @@ class SpiralAutoencoder(nn.Module):
                     input_size = filters_dec[0][i + 1]
 
         self.dconv = nn.ModuleList(self.dconv)
-        
-<<<<<<< HEAD
-        self.audio_embedding = nn.Linear(768*3, 64)
-=======
-        self.audio_embedding = nn.Linear(768, 64)
->>>>>>> a1c21ddfa0446ff54c0c27404d6024b5ae37ec36
+        #self.audio_embedding = nn.Linear(768, 16)
+        self.audio_embedding = nn.LSTM(768, 32)
 
     def encode(self, x):
         bsize = x.size(0)
@@ -151,55 +148,30 @@ class SpiralAutoencoder(nn.Module):
         return x
     
     def predict(self, audio, actor):
-        
+        start = time.time()
         pred_sequence = actor
         for i in range(audio.shape[1]):
             if i == 0:
-<<<<<<< HEAD
-                audio_input = torch.cat([audio[:, i, :], audio[:, i, :], audio[:, i, :]], dim=1)
+
                 z = self.encode(actor - actor)
-                z = torch.cat([z, self.audio_embedding(audio_input)], dim=1)
-                x = self.decode(z) + actor
-                pred_sequence = torch.vstack([pred_sequence, x])
-            if i == 1:
-                audio_input = torch.cat([audio[:, i, :], audio[:, i-1, :], audio[:, i-1, :]], dim=1)
-                z = self.encode(x - actor)
-                z = torch.cat([z, self.audio_embedding(audio_input)], dim=1)
-                x = self.decode(z) + actor
-                pred_sequence = torch.vstack([pred_sequence, x])
-            if i > 1:
-                audio_input = torch.cat([audio[:, i, :], audio[:, i-1, :], audio[:, i-2, :]], dim=1)
-                z = self.encode(x - actor)
-                z = torch.cat([z, self.audio_embedding(audio_input)], dim=1)
-=======
-                z = self.encode(actor)
                 z = torch.cat([z, self.audio_embedding(audio[:, i, :])], dim=1)
                 x = self.decode(z) + actor
                 pred_sequence = torch.vstack([pred_sequence, x])
             else:
-                z = self.encode(x)
+                z = self.encode(x - actor)
                 z = torch.cat([z, self.audio_embedding(audio[:, i, :])], dim=1)
->>>>>>> a1c21ddfa0446ff54c0c27404d6024b5ae37ec36
                 x = self.decode(z) + actor
                 pred_sequence = torch.vstack([pred_sequence, x])
-                
+
+        print(f"Generation time: {(time.time() - start)}")
         return pred_sequence[1:, :, :]
-    
-<<<<<<< HEAD
-    def forward(self, audio_0, audio_1, audio_2, face, actor):
-        audio = torch.cat([audio_0, audio_1, audio_2], dim=1)
-        z = self.encode(face - actor)
-=======
+
+
     def forward(self, audio, face, actor):
-        z = self.encode(face)
->>>>>>> a1c21ddfa0446ff54c0c27404d6024b5ae37ec36
+        delta = face - actor
+        z = self.encode(delta)
         z = torch.cat([z, self.audio_embedding(audio)], dim=1)
         pred = self.decode(z)
         return pred + actor
-
-<<<<<<< HEAD
-    
-=======
->>>>>>> a1c21ddfa0446ff54c0c27404d6024b5ae37ec36
 
     

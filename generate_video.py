@@ -162,16 +162,27 @@ def generate_mesh_video(out_path, out_fname, meshes_path_fname, fps, audio_fname
 def main():
     parser = argparse.ArgumentParser(description='S2L+S2D: Speech-Driven 3D Talking heads')
     parser.add_argument("--device", type=str, default="cuda:0")
-    parser.add_argument("--audio_path", type=str, default='/home/federico/Scrivania/TH/photo.wav', help='audio to animate')
-    parser.add_argument("--meshes_path", type=str, default='/home/federico/Scrivania/ScanTalk/Sequences_Results_With_LSTM/Meshes/30', help='path for results')
-    parser.add_argument("--flame_template", type=str, default="S2L/vocaset/flame_model/FLAME_sample.ply", help='template_path')
-    parser.add_argument("--save_path", type=str, default="/home/federico/Scrivania/ScanTalk/Sequences_Results_With_LSTM", help='template_path')
-    parser.add_argument("--video_name", type=str, default="example_30_test.mp4", help='name of the rendered video')
+    parser.add_argument("--audio_path", type=str, default='../Data/VOCA/res/TH/photo.wav', help='audio to animate')
+    parser.add_argument("--meshes_path", type=str, default='../Data/VOCA/res/Results_Actor/Meshes/100', help='path for results')
+    parser.add_argument("--meshes_path_training", type=str, default='../Data/VOCA/res/Results_Actor/Meshes_Training/100', help='path for results')
+    parser.add_argument("--flame_template", type=str, default="template/flame_model/FLAME_sample.ply", help='template_path')
+    parser.add_argument("--save_path", type=str, default="../Data/VOCA/res/Results_Actor", help='template_path')
+    parser.add_argument("--video_name", type=str, default="example_0_unseen.mp4", help='name of the rendered video')
+    parser.add_argument("--video_name_training", type=str, default="example_0_train.mp4", help='name of the rendered video')
     parser.add_argument("--fps", type=int, default=60, help='frames per second')
 
     args = parser.parse_args()
 
-    print('Video Generation')
+    print('Video Generation Training')
+    generate_mesh_video(args.save_path,
+                        args.video_name_training,
+                        args.meshes_path_training,
+                        args.fps,
+                        args.audio_path,
+                        args.flame_template)
+    print('done')
+
+    print('Video Generation Unseen')
     generate_mesh_video(args.save_path,
                         args.video_name,
                         args.meshes_path,
