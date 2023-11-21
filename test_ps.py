@@ -2,7 +2,7 @@ import polyscope as ps
 import polyscope.imgui as psim
 import trimesh as tri
 import numpy as np
-import os
+import os, time
 
 ui_int = 0
 colors = [
@@ -34,7 +34,7 @@ def register_surface(name, mesh, x=0.0, y=0.0, z=0.0, idx_color=0, transparency=
                                  color=tuple(int(colors[-1][i:i + 2], 16) / 255.0 for i in (1, 3, 5)), vectortype="ambient")
 
     if disp_heatmap is not None:
-        mesh.add_scalar_quantity('relative error heatmap', disp_heatmap, enabled=True, cmap='reds', vminmax=(0.0, 0.06))
+        mesh.add_scalar_quantity('relative error heatmap', disp_heatmap, enabled=True, cmap='reds', vminmax=(0.052, 0.06))
 
     return mesh
 
@@ -63,6 +63,15 @@ def callback():
                          disp_vectors = disp_vectors_gt[ui_int], disp_heatmap=error_heatmap[ui_int])
 
 
+    if(psim.Button("Play")):
+        print("Hello")
+        for frame in range(len(meshes)-2):
+            ui_int = frame
+            ps.remove_all_structures()
+            register_surface(name=f'Frame {ui_int}', mesh=meshes[ui_int], disp_vectors=disp_vectors[ui_int])
+            register_surface(name=f'Frame GT {ui_int}', x=0.25, y=-0.02, z=-0.05, idx_color=1, mesh=meshes_gt[ui_int],
+                             disp_vectors=disp_vectors_gt[ui_int], disp_heatmap=error_heatmap[ui_int])
+
 if __name__ == '__main__':
     GT = True
 
@@ -76,6 +85,7 @@ if __name__ == '__main__':
         l_mesh_gt_dir = len(os.listdir(meshes_gt_dir))
         meshes_gt = [tri.load(os.path.join(meshes_gt_dir, 'sentence01.' + str(i).zfill(6) +'.ply')) for i in range(1, l_mesh_gt_dir)]
         disp_vectors_gt = np.array([meshes_gt[i+1].vertices - meshes_gt[i].vertices for i in range(len(meshes_gt) - 1)])
+        print(disp_vectors_gt.max())
         error_heatmap = np.array([np.linalg.norm(meshes_gt[i+1].vertices - meshes[i].vertices, axis=1) for i in range(len(meshes_gt) - 1)])
 
     ps.init()

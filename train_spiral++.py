@@ -55,6 +55,25 @@ class Masked_Loss(nn.Module):
 
         return L
 
+class Metric(nn.Module):
+    def __init__(self, args):
+        super(Metric, self).__init__()
+        self.indices = np.load(args.mask_path)
+        self.mask = torch.zeros((5023, 3))
+        self.mask[self.indices] = 1
+        self.mask = self.mask.to(args.device)
+        self.mse = nn.MSELoss(reduction='none')
+        self.number_of_indices = self.indices.shape[0]
+
+    def forward(self, predictions, target):
+        mb = predictions.shape[0]
+        rec_loss = torch.mean(self.mse(predictions, target))
+
+        lip_vertex_error = torch.sum(self.mse(predictions * self.mask, target * self.weights)) / (
+                   self.number_of_indices * mb)
+
+        return lip_vertex_error
+
 def train(args):
 
     device = args.device
@@ -123,7 +142,7 @@ def train(args):
     dataset_train = new_data_loader.TH_seq_Dataset(args.dataset_dir_audios,
                                                args.dataset_dir_frame,
                                                args.dataset_dir_actor,
-                                               10,
+                                               5,
                                                110000)
     
     dataset_test = new_data_loader.TH_seq_Dataset(args.dataset_dir_audios,
@@ -161,8 +180,7 @@ def train(args):
         pbar_talk = tqdm(enumerate(dataloader_train), total=len(dataloader_train))
         for b, sample in pbar_talk:
             optim.zero_grad()
-            audio, next_audio = sample['audio'].to(device), sample['next_audio'].to(device)
-            #print(audio.shape)
+            audio = sample['audio'].to(device)
             frame = sample['frame'].to(device)
             #next_frame = sample['next_frame'].to(device)
             actor = sample['actor'].to(device)
@@ -183,7 +201,7 @@ def train(args):
                 t_test_loss = 0
                 pbar_talk = tqdm(enumerate(dataloader_test), total=len(dataloader_test))
                 for b, sample in pbar_talk:
-                    audio, next_audio = sample['audio'].to(device), sample['next_audio'].to(device)
+                    audio = sample['audio'].to(device)
                     frame = sample['frame'].to(device)
                     # next_frame = sample['next_frame'].to(device)
                     actor = sample['actor'].to(device)
@@ -200,7 +218,7 @@ def train(args):
                 audio_feature = torch.FloatTensor(audio_feature)
                 hidden_states = audio_encoder(audio_feature).last_hidden_state.to(args.device)
                 
-                gen_seq = d2d.predict_new(hidden_states, template_vertices.float(), )
+                gen_seq = d2d.predict_cat_audio(hidden_states, template_vertices.float(), )
                 
                 gen_seq = gen_seq.cpu().detach().numpy()
                 
@@ -222,7 +240,7 @@ def train(args):
                 
                 face = torch.tensor(face).to(args.device)
                 
-                gen_seq = d2d.predict_new(hidden_states, face.float().unsqueeze(0))
+                gen_seq = d2d.predict_cat_audio(hidden_states, face.float().unsqueeze(0))
                 
                 gen_seq = gen_seq.cpu().detach().numpy()
                 
@@ -230,11 +248,16 @@ def train(args):
                 for m in range(len(gen_seq)):
                     mesh = trimesh.Trimesh(gen_seq[m], template_tri)
                     mesh.export('../Data/VOCA/res/Results_Actor/Meshes_Training/' + str(epoch) + '/frame_' + str(m).zfill(3) + '.ply')
+
+            torch.save({'epoch': epoch,
+                        'autoencoder_state_dict': d2d.state_dict(),
+                        'optimizer_state_dict': optim.state_dict(),
+                        }, os.path.join(args.result_dir, f'd2d_ScanTalk_new_training_strat_disp{epoch}.pth.tar'))
             
         torch.save({'epoch': epoch,
                     'autoencoder_state_dict': d2d.state_dict(),
                     'optimizer_state_dict': optim.state_dict(),
-                    }, os.path.join(args.result_dir, 'd2d_ScanTalk_new_training_strat_disp.pth.tar'))
+                    }, os.path.join(args.result_dir, f'd2d_ScanTalk_new_training_strat_disp.pth.tar'))
             
             
 

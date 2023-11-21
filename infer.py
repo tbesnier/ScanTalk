@@ -1,7 +1,7 @@
 import numpy as np
 import polyscope as ps
 import argparse
-import os
+import os, glob, shutil
 import spiral_utils
 import shape_data
 import librosa
@@ -18,8 +18,9 @@ from utils import utils, mesh_sampling
 
 def infer(args):
 
-    if not os.path.exists(args.result_dir):
-        os.makedirs(args.result_dir)
+    os.makedirs(args.result_dir, exist_ok=True)
+    for f in glob.glob(args.result_dir + "/*"):
+        os.remove(f)
 
     audio_encoder = Wav2Vec2Model.from_pretrained("facebook/wav2vec2-base-960h")
     processor = Wav2Vec2Processor.from_pretrained("facebook/wav2vec2-base-960h")
@@ -110,13 +111,13 @@ def infer(args):
 def main():
     parser = argparse.ArgumentParser(description='Infer ScanTalk on a mesh file with an audio file and visualize what happens during inference')
     parser.add_argument("--device", type=str, default="cuda:0")
-    parser.add_argument("--result_dir", type=str, default='../Data/VOCA/res/Results_Actor/Models')
+    parser.add_argument("--result_dir", type=str, default='../Data/VOCA/res/Results_Actor/Meshes_infer/')
     parser.add_argument("--reference_mesh_file", type=str, default='./template/flame_model/FLAME_sample.ply',
                         help='path of the template')
-    parser.add_argument("--sample_audio", type=str, default='../Data/VOCA/res/TH/photo.wav')
+    parser.add_argument("--sample_audio", type=str, default='../Data/VOCA/res/TH/photo_new.wav')
     parser.add_argument("--template_file", type=str, default="../datasets/VOCA_training/templates.pkl",
                         help='faces to animate')
-    parser.add_argument("--model_path", type=str, default='../Data/VOCA/res/Results_Actor/Models/mean_audio_work.pth.tar')
+    parser.add_argument("--model_path", type=str, default='../Data/VOCA/res/Results_Actor/Models/d2d_ScanTalk_new_training_strat_disp190.pth.tar')
 
     ##Spiral++ hyperparameters
     parser.add_argument('--out_channels',
