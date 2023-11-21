@@ -244,7 +244,7 @@ def main():
                         nargs='+',
                         default=[32, 64, 64, 128],#divided by 2
                         type=int)
-    parser.add_argument('--latent_channels', type=int, default=32)
+    parser.add_argument('--latent_channels', type=int, default=64)
     parser.add_argument('--in_channels', type=int, default=3)
     parser.add_argument('--seq_length', type=int, default=[12, 12, 12, 12], nargs='+')
     parser.add_argument('--dilation', type=int, default=[1, 1, 1, 1], nargs='+')

@@ -138,9 +138,9 @@ class SpiralAutoencoder(nn.Module):
             SpiralConv(out_channels[0], in_channels, self.spiral_indices[0]))
 
         self.audio_embedding = nn.Linear(768, self.latent_channels)
-        self.lstm = nn.LSTM(input_size=self.latent_channels*2, hidden_size=int(self.latent_channels/2), num_layers=2, batch_first=True, bidirectional=True)
+        self.lstm = nn.LSTM(input_size=self.latent_channels*2, hidden_size=int(self.latent_channels/2), num_layers=3, batch_first=True, bidirectional=True)
 
-        #self.reset_parameters()
+        #self.reset_parameters_to_zero()
 
     def reset_parameters(self):
         for name, param in self.named_parameters():
@@ -148,6 +148,10 @@ class SpiralAutoencoder(nn.Module):
                 nn.init.constant_(param, 0)
             else:
                 nn.init.xavier_uniform_(param)
+    
+    def reset_parameters_to_zero(self):
+        for name, param in self.named_parameters():
+            nn.init.constant_(param, 0)
 
     def encode(self, x):
         for i, layer in enumerate(self.en_layers):
