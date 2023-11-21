@@ -53,13 +53,14 @@ class TH_Dataset(Dataset):
 
 class TH_seq_Dataset(Dataset):
 
-    def __init__(self, audio_dir, frame_dir, actor_dir, start_index, end_index):
+    def __init__(self, audio_dir, frame_dir, actor_dir, start_index, end_index, n=3):
         self.audio_dir = audio_dir
         self.frame_dir = frame_dir
         #self.next_frame_dir = next_frame_dir
         self.actor_dir = actor_dir
         self.start_index = start_index
         self.end_index = end_index
+        self.n = n
 
         print('The dataset contains: ')
         print(self.end_index - self.start_index)
@@ -72,9 +73,18 @@ class TH_seq_Dataset(Dataset):
 
         audio = np.load(os.path.join(self.audio_dir, 'frame' + str(idx).zfill(6) + '.npy'))
 
-        next_audio = np.load(os.path.join(self.audio_dir, 'frame' + str(idx + 1).zfill(6) + '.npy'))
+        previous_previous_previous_audio = np.load(os.path.join(self.audio_dir, 'frame' + str(idx - 3).zfill(6) + '.npy'))
+        previous_previous_audio = np.load(os.path.join(self.audio_dir, 'frame' + str(idx - 2).zfill(6) + '.npy'))
+        previous_audio = np.load(os.path.join(self.audio_dir, 'frame' + str(idx - 1).zfill(6) + '.npy'))
 
-        audio_window = np.mean(np.array([np.load(os.path.join(self.audio_dir, 'frame' + str(i).zfill(6) + '.npy')) for i in range(idx-5, idx + 5)]), axis=0)
+        next_audio = np.load(os.path.join(self.audio_dir, 'frame' + str(idx + 1).zfill(6) + '.npy'))
+        next_next_audio = np.load(os.path.join(self.audio_dir, 'frame' + str(idx + 2).zfill(6) + '.npy'))
+        next_next_next_audio = np.load(os.path.join(self.audio_dir, 'frame' + str(idx + 3).zfill(6) + '.npy'))
+
+        audio = np.array([np.load(os.path.join(self.audio_dir, 'frame' + str(i).zfill(6) + '.npy')) for i in range(idx-self.n, idx + self.n)])
+
+        #audio_window = np.mean(np.array([np.load(os.path.join(self.audio_dir, 'frame' + str(i).zfill(6) + '.npy')) for i in range(idx-self.n, idx + self.n)]), axis=0)
+        #audio_window = np.mean(np.array([(1/(1 + abs(idx - i))) * np.load(os.path.join(self.audio_dir, 'frame' + str(i).zfill(6) + '.npy')) for i in range(idx-self.n, idx + self.n)]), axis=0)
 
         frame = np.load(os.path.join(self.frame_dir, 'frame' + str(idx).zfill(6) + '.npy'))
 
@@ -82,7 +92,7 @@ class TH_seq_Dataset(Dataset):
 
         actor = np.load(os.path.join(self.actor_dir, 'frame' + str(idx).zfill(6) + '.npy'))
 
-        audio, next_audio = torch.Tensor(audio_window), torch.Tensor(next_audio)
+        audio = torch.Tensor(audio)
 
         frame = torch.Tensor(frame)
 
@@ -91,7 +101,6 @@ class TH_seq_Dataset(Dataset):
         actor = torch.Tensor(actor)
 
         sample = {'audio': audio,
-                  'next_audio': next_audio,
                   'frame': frame,
                   'next_frame': next_frame,
                   'actor': actor}

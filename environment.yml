@@ -36,7 +36,6 @@ dependencies:
   - numpy=1.24.3=py38hf6e8229_1
   - numpy-base=1.24.3=py38h060ed82_1
   - openssl=3.0.11=h7f8727e_2
-  - pillow=9.4.0=py38h6a678d5_1
   - pip=23.2.1=py38h06a4308_0
   - python=3.8.18=h955ad1f_0
   - pytorch=1.7.0=py3.8_cuda11.0.221_cudnn8.0.3_0
@@ -53,38 +52,76 @@ dependencies:
   - zlib=1.2.13=h5eee18b_0
   - zstd=1.5.5=hc292b87_0
   - pip:
-      - audioread==3.0.1
-      - certifi==2023.7.22
-      - cffi==1.16.0
-      - charset-normalizer==3.3.0
-      - click==8.1.7
-      - decorator==5.1.1
-      - filelock==3.12.4
-      - huggingface-hub==0.0.8
-      - idna==3.4
-      - importlib-metadata==6.8.0
-      - joblib==1.3.2
-      - lazy-loader==0.3
-      - librosa==0.10.1
-      - llvmlite==0.41.0
-      - msgpack==1.0.7
-      - numba==0.58.0
-      - packaging==23.2
-      - platformdirs==3.11.0
-      - pooch==1.7.0
-      - pycparser==2.21
-      - regex==2023.10.3
-      - requests==2.31.0
-      - sacremoses==0.0.53
-      - scikit-learn==1.3.1
-      - scipy==1.10.1
-      - six==1.16.0
-      - soundfile==0.12.1
-      - soxr==0.3.7
-      - threadpoolctl==3.2.0
-      - tokenizers==0.10.3
-      - tqdm==4.66.1
-      - transformers==4.6.1
-      - trimesh==3.23.5
-      - urllib3==2.0.6
-      - zipp==3.17.0
+    - aitviewer==1.12.0
+    - antlr4-python3-runtime==4.9.3
+    - audioread==3.0.1
+    - certifi==2023.7.22
+    - cffi==1.16.0
+    - charset-normalizer==3.3.0
+    - click==8.1.7
+    - dataclasses==0.6
+    - decorator==5.1.1
+    - filelock==3.12.4
+    - freetype-py==2.4.0
+    - future==0.18.3
+    - glcontext==2.5.0
+    - huggingface-hub==0.0.8
+    - idna==3.4
+    - imageio==2.31.6
+    - imgui==2.0.0
+    - importlib-metadata==6.8.0
+    - joblib==1.3.2
+    - lazy-loader==0.3
+    - librosa==0.10.1
+    - llvmlite==0.41.0
+    - moderngl==5.8.2
+    - moderngl-window==2.4.5
+    - msgpack==1.0.7
+    - multipledispatch==1.0.0
+    - networkx==3.1
+    - numba==0.58.0
+    - omegaconf==2.3.0
+    - opencv-contrib-python-headless==4.8.1.78
+    - opencv-python==4.8.1.78
+    - openmesh==1.2.1
+    - packaging==23.2
+    - pillow==10.0.1
+    - platformdirs==3.11.0
+    - polyscope==1.3.4
+    - pooch==1.7.0
+    - psbody-mesh==0.4
+    - pycparser==2.21
+    - pyglet==2.0.9
+    - pyopengl==3.1.0
+    - pyqt5==5.15.10
+    - pyqt5-qt5==5.15.2
+    - pyqt5-sip==12.13.0
+    - pyrender==0.1.45
+    - pyrr==0.10.3
+    - pywavelets==1.4.1
+    - pyyaml==6.0.1
+    - pyzmq==25.1.1
+    - regex==2023.10.3
+    - requests==2.31.0
+    - roma==1.4.1
+    - sacremoses==0.0.53
+    - scikit-image==0.21.0
+    - scikit-learn==1.3.1
+    - scikit-video==1.1.11
+    - scipy==1.10.1
+    - six==1.16.0
+    - smplx==0.1.28
+    - soundfile==0.12.1
+    - soxr==0.3.7
+    - threadpoolctl==3.2.0
+    - tifffile==2023.7.10
+    - tokenizers==0.10.3
+    - torch-scatter==2.0.7
+    - tqdm==4.66.1
+    - transformers==4.6.1
+    - trimesh==3.23.5
+    - urllib3==2.0.6
+    - usd-core==23.11
+    - websockets==12.0
+    - zipp==3.17.0
+prefix: /home/besnier/anaconda3/envs/scantalk

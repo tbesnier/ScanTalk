@@ -121,7 +121,7 @@ class SpiralAutoencoder(nn.Module):
         # decoder
         self.de_layers = nn.ModuleList()
         self.de_layers.append(
-            nn.Linear(latent_channels*2, self.num_vert * out_channels[-1]))
+            nn.Linear(latent_channels + 6*16, self.num_vert * out_channels[-1]))
         for idx in range(len(out_channels)):
             if idx == 0:
                 self.de_layers.append(
@@ -135,9 +135,9 @@ class SpiralAutoencoder(nn.Module):
         self.de_layers.append(
             SpiralConv(out_channels[0], in_channels, self.spiral_indices[0]))
 
-        #self.audio_embedding = #Seq(Lin(768, 1024, bias=False), Dropout(0.5), Lin(1024, self.latent_channels))
+        self.audio_embedding = Seq(Lin(768, 1024, bias=False), Dropout(0.5), Lin(1024, 16))
         #self.audio_embedding = nn.LSTM(input_size=768, hidden_size=1024, num_layers=3, batch_first=True , bidirectional=True)
-        self.audio_embedding = nn.LSTM(input_size=768, hidden_size=self.latent_channels, num_layers=5, batch_first=True, bidirectional=True)
+        #self.audio_embedding = nn.LSTM(input_size=768, hidden_size=self.latent_channels, num_layers=5, batch_first=True, bidirectional=True)
         #self.fc = Lin(1024, self.latent_channels, bias=False)
 
         self.reset_parameters()
@@ -193,29 +193,50 @@ class SpiralAutoencoder(nn.Module):
 
         pred_sequence = actor
         for i in range(audio.shape[1]):
-            #z = self.encode(actor)
+            z = self.encode(actor)
             if i<5:
-                audio_data = torch.mean(torch.stack([audio[:, i, :] for i in range(0, i + 5)]), axis=0)
+                audio_data = torch.mean(torch.stack([(1/(1 + k)) * audio[:, k, :] for k in range(0, i + 5)]), axis=0)
             elif i>=5 and i+5<audio.shape[1]:
-                audio_data = torch.mean(torch.stack([audio[:,i,:] for i in range(i-5, i+5)]), axis=0)
+                audio_data = torch.mean(torch.stack([(1/(1 + abs(i - k))) * audio[:,k,:] for k in range(i-5, i+5)]), axis=0)
             else:
-                audio_data = torch.mean(torch.stack([audio[:,i,:] for i in range(i-5, audio.shape[1])]), axis=0)
+                audio_data = torch.mean(torch.stack([(1/(1 + abs(i - k))) * audio[:,k,:] for k in range(i-5, audio.shape[1])]), axis=0)
 
-            audio_emb, _ = self.audio_embedding(audio_data.unsqueeze(0))
-            #audio_emb = self.audio_embedding(audio[:,i,:])
-            #z = torch.cat([z, audio_emb[0]], dim=1)
-            z = audio_emb[0]
+            #audio_emb, _ = self.audio_embedding(audio_data.unsqueeze(0))
+            audio_emb = self.audio_embedding(audio_data)
+            z = torch.cat([z, audio_emb], dim=1)
+            #z = audio_emb[0]
+            x = self.decode(z) + actor
+            pred_sequence = torch.vstack([pred_sequence, x])
+
+        return pred_sequence[1:, :, :]
+
+    def predict_cat_audio(self, audio, actor, n=3):
+
+        pred_sequence = actor
+        for i in range(audio.shape[1]):
+            z = self.encode(actor)
+            if i<n:
+                audio_data = [audio[:, 0, :] for j in range(n - i)] + [audio[:,j,:] for j in range(0, i+n)]
+            elif i>=n and i+n<audio.shape[1]:
+                audio_data = [audio[:, k, :] for k in range(i - n, i + n)]
+            else:
+                audio_data = [audio[:, k, :] for k in range(i - n, audio.shape[1])] + (i + n - audio.shape[1])*[audio[:,-1,:]]
+            audio_emb = self.audio_embedding(audio_data[0])
+            for l in range(1,6):
+                audio_emb = torch.cat([audio_emb, self.audio_embedding(audio_data[l])], dim=1)
+            z = torch.cat([z, audio_emb], dim=1)
             x = self.decode(z) + actor
             pred_sequence = torch.vstack([pred_sequence, x])
 
         return pred_sequence[1:, :, :]
 
     def forward(self, audio, actor):
-        audio_emb, _ = self.audio_embedding(audio.unsqueeze(0))
-        #audio_emb = self.audio_embedding(audio)
-        #z = self.encode(actor)
-        #z = torch.cat([z, audio_emb[0]], dim=1)
-        z = audio_emb[0]
+        z = self.encode(actor)
+        #audio_emb, _ = self.audio_embedding(audio.unsqueeze(0))
+        for i in range(audio.shape[1]):
+            audio_emb = self.audio_embedding(audio[:,i,:])
+            z = torch.cat([z, audio_emb], dim=1)
+        #z = audio_emb[0]
         pred = self.decode(z)
         return pred + actor
 
