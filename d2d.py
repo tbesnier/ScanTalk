@@ -3,6 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch_scatter import scatter_add
 from torch.nn import Sequential as Seq, Linear as Lin, BatchNorm1d, LeakyReLU, Dropout
+from wav2vec import Wav2Vec2Model
 
 import pdb
 
@@ -101,6 +102,9 @@ class SpiralAutoencoder(nn.Module):
         self.down_transform = down_transform
         self.up_transform = up_transform
         self.num_vert = self.down_transform[-1].size(0)
+        self.audio_encoder = Wav2Vec2Model.from_pretrained("facebook/wav2vec2-base-960h")
+        self.audio_encoder.feature_extractor._freeze_parameters()
+
 
         # encoder
         self.en_layers = nn.ModuleList()
@@ -133,10 +137,10 @@ class SpiralAutoencoder(nn.Module):
         self.de_layers.append(
             SpiralConv(out_channels[0], in_channels, self.spiral_indices[0]))
 
-        self.audio_embedding = nn.Linear(768, 64)
-        self.lstm = nn.LSTM(input_size=64*2, hidden_size=64, num_layers=3, batch_first=True, bidirectional=True)
+        self.audio_embedding = nn.Linear(768, self.latent_channels)
+        self.lstm = nn.LSTM(input_size=self.latent_channels*2, hidden_size=int(self.latent_channels/2), num_layers=2, batch_first=True, bidirectional=True)
 
-        self.reset_parameters()
+        #self.reset_parameters()
 
     def reset_parameters(self):
         for name, param in self.named_parameters():
@@ -167,9 +171,10 @@ class SpiralAutoencoder(nn.Module):
                 x = layer(x)
         return x
 
-    def forward(self, audio, actor):
+    def forward(self, audio, actor, vertices):
+        hidden_states = self.audio_encoder(audio, frame_num=len(vertices)).last_hidden_state
         pred_sequence = actor
-        audio_emb = self.audio_embedding(audio)
+        audio_emb = self.audio_embedding(hidden_states)
         actor_emb = self.encode(actor)
         actor_emb = actor_emb.expand(audio_emb.shape)
         latent = torch.cat([audio_emb, actor_emb], dim=2)

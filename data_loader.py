@@ -56,9 +56,10 @@ def read_data(args):
                 wav_path = os.path.join(r, f)
                 speech_array, sampling_rate = librosa.load(wav_path, sr=16000)
                 audio_feature = np.squeeze(processor(speech_array, sampling_rate=16000).input_values)
-                audio_feature = np.reshape(audio_feature, (-1, audio_feature.shape[0]))
-                audio_feature = torch.FloatTensor(audio_feature)
+                #audio_feature = np.reshape(audio_feature, (-1, audio_feature.shape[0]))
+                #audio_feature = torch.FloatTensor(audio_feature)
                 key = f.replace("wav", "npy")
+                data[key]["audio"] = audio_feature
                 subject_id = "_".join(key.split("_")[:-1])
                 temp = templates[subject_id]
                 data[key]["name"] = f
@@ -69,11 +70,11 @@ def read_data(args):
                 else:
                     vertices = np.load(vertices_path_, allow_pickle=True)[::2, :]
                     data[key]["vertices"] = np.reshape(vertices, (vertices.shape[0], 5023, 3))
-                hidden_states = audio_encoder(audio_feature, frame_num=len(vertices)).last_hidden_state
-                data[key]["audio"] = hidden_states.squeeze(0)
-                k+=1
-                if k==10:
-                    break
+                #hidden_states = audio_encoder(audio_feature, frame_num=len(vertices)).last_hidden_state
+                #data[key]["audio"] = hidden_states.squeeze(0)
+                #k+=1
+                #if k==10:
+                #    break
 
     subjects_dict = {}
     subjects_dict["train"] = [i for i in args.train_subjects.split(" ")]
@@ -102,9 +103,9 @@ def get_dataloaders(args):
     train_data = Dataset(train_data, subjects_dict, "train")
     dataset["train"] = data.DataLoader(dataset=train_data, batch_size=1, shuffle=True)
     valid_data = Dataset(valid_data, subjects_dict, "val")
-    dataset["valid"] = data.DataLoader(dataset=valid_data, batch_size=1, shuffle=False)
+    dataset["valid"] = data.DataLoader(dataset=valid_data, batch_size=1, shuffle=True)
     test_data = Dataset(test_data, subjects_dict, "test")
-    dataset["test"] = data.DataLoader(dataset=test_data, batch_size=1, shuffle=False)
+    dataset["test"] = data.DataLoader(dataset=test_data, batch_size=1, shuffle=True)
     return dataset
 
 

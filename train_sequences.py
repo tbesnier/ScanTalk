@@ -9,11 +9,9 @@ from torch.utils.data import DataLoader
 from sklearn.metrics.pairwise import euclidean_distances
 import argparse
 from tqdm import tqdm
-#from d2d import SpiralAutoencoder
 from d2d import SpiralAutoencoder
-#from transformers import AutoProcessor
 import librosa
-#from wavlm import WavLMModel
+import random
 from transformers import Wav2Vec2Processor
 from wav2vec import Wav2Vec2Model
 from psbody.mesh import Mesh
@@ -145,19 +143,19 @@ def train(args):
             audio = sample[0].to(device)
             vertices = sample[1].to(device).squeeze(0)
             template = sample[2].to(device)
-            vertices_pred = d2d.forward(audio, template)
-            
+            vertices_pred = d2d.forward(audio, template, vertices)
+            optim.zero_grad()
+
             #loss = criterion.forward_weighted(vertices, vertices_pred) + criterion(vertices_pred - template, vertices - template)ù
             loss = criterion(vertices, vertices_pred)
             torch.nn.utils.clip_grad_norm_(d2d.parameters(), 10.0)
-            optim.zero_grad()
             loss.backward()
             optim.step()
-            tloss += loss
+            tloss += loss.item()
             pbar_talk.set_description(
                 "(Epoch {}) TRAIN LOSS:{:.10f}".format((epoch + 1), tloss/(b+1)))
             
-        '''
+        
         if epoch % 10 == 0:
             d2d.eval()
             with torch.no_grad():
@@ -185,10 +183,10 @@ def train(args):
                 
                 gen_seq = gen_seq.cpu().detach().numpy()
                 
-                os.makedirs('/home/federico/Scrivania/ST/ScanTalk/saves/Meshes/' + str(epoch), exist_ok=True)
+                os.makedirs('/home/federico/Scrivania/ST/Data/saves/Meshes/' + str(epoch), exist_ok=True)
                 for m in range(len(gen_seq)):
                     mesh = trimesh.Trimesh(gen_seq[m], template_tri)
-                    mesh.export('/home/federico/Scrivania/ST/ScanTalk/saves/Meshes/' + str(epoch) + '/frame_' + str(m).zfill(3) + '.ply')
+                    mesh.export('/home/federico/Scrivania/ST/Data/saves/Meshes/' + str(epoch) + '/frame_' + str(m).zfill(3) + '.ply')
                 
                 #Sample from training set
                 speech_array, sampling_rate = librosa.load(args.training_sample_audio, sr=16000)
@@ -207,16 +205,16 @@ def train(args):
                 
                 gen_seq = gen_seq.cpu().detach().numpy()
                 
-                os.makedirs('/home/federico/Scrivania/ST/ScanTalk/saves/Meshes_Training/' + str(epoch), exist_ok=True)
+                os.makedirs('/home/federico/Scrivania/ST/Data/saves/Meshes_Training/' + str(epoch), exist_ok=True)
                 for m in range(len(gen_seq)):
                     mesh = trimesh.Trimesh(gen_seq[m], template_tri)
-                    mesh.export('/home/federico/Scrivania/ST/ScanTalk/saves/Meshes_Training/' + str(epoch) + '/frame_' + str(m).zfill(3) + '.ply')
+                    mesh.export('/home/federico/Scrivania/ST/Data/saves/Meshes_Training/' + str(epoch) + '/frame_' + str(m).zfill(3) + '.ply')
          
-            torch.save({'epoch': epoch,
-                        'autoencoder_state_dict': d2d.state_dict(),
-                        'optimizer_state_dict': optim.state_dict(),
-                        }, os.path.join(args.result_dir, 'd2d_ScanTalk_new_training_strat_disp.pth.tar'))
-               '''
+        torch.save({'epoch': epoch,
+                    'autoencoder_state_dict': d2d.state_dict(),
+                    'optimizer_state_dict': optim.state_dict(),
+                    }, os.path.join(args.result_dir, 'd2d_ScanTalk_new_training_strat_disp.pth.tar'))
+               
             
 
 def main():
@@ -225,8 +223,8 @@ def main():
     parser.add_argument('--weight_decay', type=float, default=0)
     parser.add_argument("--reference_mesh_file", type=str, default='/home/federico/Scrivania/ScanTalk2.0/ScanTalk-thomas/template/flame_model/FLAME_sample.ply', help='path of the template')
     parser.add_argument("--epochs", type=int, default=200, help='number of epochs')
-    parser.add_argument("--device", type=str, default="cuda:0")
-    parser.add_argument("--result_dir", type=str, default='/home/federico/Scrivania/ST/ScanTalk/results')
+    parser.add_argument("--device", type=str, default="cuda")
+    parser.add_argument("--result_dir", type=str, default='/home/federico/Scrivania/ST/Data/results')
     parser.add_argument("--sample_audio", type=str, default='/home/federico/Scrivania/TH/photo.wav')
     parser.add_argument("--training_sample_audio", type=str, default='/home/federico/Scrivania/TH/S2L/vocaset/wav/FaceTalk_170725_00137_TA_sentence02.wav')
     parser.add_argument("--template_file", type=str, default="/home/federico/Scrivania/TH/S2L/vocaset/templates.pkl", help='faces to animate')
@@ -248,9 +246,9 @@ def main():
     ##Spiral++ hyperparameters
     parser.add_argument('--out_channels',
                         nargs='+',
-                        default=[64, 128, 128, 256],
+                        default=[32, 64, 64, 128],#divided by 2
                         type=int)
-    parser.add_argument('--latent_channels', type=int, default=64)
+    parser.add_argument('--latent_channels', type=int, default=32)
     parser.add_argument('--in_channels', type=int, default=3)
     parser.add_argument('--seq_length', type=int, default=[12, 12, 12, 12], nargs='+')
     parser.add_argument('--dilation', type=int, default=[1, 1, 1, 1], nargs='+')
