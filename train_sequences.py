@@ -58,7 +58,6 @@ def train(args):
     if not os.path.exists(args.result_dir):
         os.makedirs(args.result_dir)
 
-    audio_encoder = Wav2Vec2Model.from_pretrained("facebook/wav2vec2-base-960h")
     processor = Wav2Vec2Processor.from_pretrained("facebook/wav2vec2-base-960h")
 
     meshpackage = 'trimesh'
@@ -175,11 +174,7 @@ def train(args):
                 #Sample from external audio and face
                 speech_array, sampling_rate = librosa.load(args.sample_audio, sr=16000)
                 audio_feature = np.squeeze(processor(speech_array, sampling_rate=sampling_rate).input_values)
-                audio_feature = np.reshape(audio_feature, (-1, audio_feature.shape[0]))
-                audio_feature = torch.FloatTensor(audio_feature)
-                hidden_states = audio_encoder(audio_feature).last_hidden_state.to(args.device)
-                
-                gen_seq = d2d.predict(hidden_states, template_vertices.float())
+                gen_seq = d2d.predict(torch.tensor(audio_feature).to(args.device), template_vertices.float())
                 
                 gen_seq = gen_seq.cpu().detach().numpy()
                 
@@ -191,9 +186,6 @@ def train(args):
                 #Sample from training set
                 speech_array, sampling_rate = librosa.load(args.training_sample_audio, sr=16000)
                 audio_feature = np.squeeze(processor(speech_array, sampling_rate=sampling_rate).input_values)
-                audio_feature = np.reshape(audio_feature, (-1, audio_feature.shape[0]))
-                audio_feature = torch.FloatTensor(audio_feature)
-                hidden_states = audio_encoder(audio_feature).last_hidden_state.to(args.device)
                 with open(args.template_file, 'rb') as fin:
                     templates = pickle.load(fin, encoding='latin1')
 
@@ -201,7 +193,7 @@ def train(args):
                 
                 face = torch.tensor(face).to(args.device)
                 
-                gen_seq = d2d.predict(hidden_states, face.float().unsqueeze(0))
+                gen_seq = d2d.predict(torch.tensor(audio_feature).to(args.device), face.float().unsqueeze(0))
                 
                 gen_seq = gen_seq.cpu().detach().numpy()
                 

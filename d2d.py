@@ -184,8 +184,9 @@ class SpiralAutoencoder(nn.Module):
         return pred_sequence[1:, :, :]
 
     def predict(self, audio, actor):
+        hidden_states = self.audio_encoder(audio).last_hidden_state
         pred_sequence = actor
-        audio_emb = self.audio_embedding(audio)
+        audio_emb = self.audio_embedding(hidden_states)
         actor_emb = self.encode(actor)
         actor_emb = actor_emb.expand(audio_emb.shape)
         latent = torch.cat([audio_emb, actor_emb], dim=2)
