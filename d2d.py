@@ -1,205 +1,191 @@
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
+from torch_scatter import scatter_add
+from torch.nn import Sequential as Seq, Linear as Lin, BatchNorm1d, LeakyReLU, Dropout
 
 import pdb
 
+def MLP(channels, bias=False, nonlin=LeakyReLU(negative_slope=0.2)):
+    return Seq(*[
+        Seq(Lin(channels[i - 1], channels[i], bias=bias), BatchNorm1d(channels[i]), nonlin)
+        for i in range(1, len(channels))
+    ])
+
+def Pool(x, trans, dim=1):
+    row, col = trans._indices()
+    value = trans._values().unsqueeze(-1)
+    out = torch.index_select(x, dim, col) * value
+    out = scatter_add(out, row, dim, dim_size=trans.size(0))
+    return out
+
+
+class SpiralEnblock(nn.Module):
+    def __init__(self, in_channels, out_channels, indices):
+        super(SpiralEnblock, self).__init__()
+        self.conv = SpiralConv(in_channels, out_channels, indices)
+        self.reset_parameters()
+
+    def reset_parameters(self):
+        self.conv.reset_parameters()
+
+    def forward(self, x, down_transform):
+        out = F.elu(self.conv(x))
+        out = Pool(out, down_transform)
+        return out
+
+
+class SpiralDeblock(nn.Module):
+    def __init__(self, in_channels, out_channels, indices):
+        super(SpiralDeblock, self).__init__()
+        self.conv = SpiralConv(in_channels, out_channels, indices)
+        self.reset_parameters()
+
+    def reset_parameters(self):
+        self.conv.reset_parameters()
+
+    def forward(self, x, up_transform):
+        out = Pool(x, up_transform)
+        out = F.elu(self.conv(out))
+        return out
 
 class SpiralConv(nn.Module):
-    def __init__(self, in_c, spiral_size, out_c, activation='elu', bias=True, device=None):
+    def __init__(self, in_channels, out_channels, indices, dim=1):
         super(SpiralConv, self).__init__()
-        self.in_c = in_c
-        self.out_c = out_c
-        self.device = device
+        self.dim = dim
+        self.indices = indices
+        self.in_channels = in_channels
+        self.out_channels = out_channels
+        self.seq_length = indices.size(1)
 
-        self.conv = nn.Linear(in_c * spiral_size, out_c, bias=bias)
+        self.layer = nn.Linear(in_channels * self.seq_length, out_channels)
+        self.reset_parameters()
 
-        if activation == 'relu':
-            self.activation = nn.ReLU()
-        elif activation == 'elu':
-            self.activation = nn.ELU()
-        elif activation == 'leaky_relu':
-            self.activation = nn.LeakyReLU(0.02)
-        elif activation == 'sigmoid':
-            self.activation = nn.Sigmoid()
-        elif activation == 'tanh':
-            self.activation = nn.Tanh()
-        elif activation == 'identity':
-            self.activation = lambda x: x
+    def reset_parameters(self):
+        torch.nn.init.xavier_uniform_(self.layer.weight)
+        torch.nn.init.constant_(self.layer.bias, 0)
+
+    def forward(self, x):
+        n_nodes, _ = self.indices.size()
+        if x.dim() == 2:
+            x = torch.index_select(x, 0, self.indices.view(-1))
+            x = x.view(n_nodes, -1)
+        elif x.dim() == 3:
+            bs = x.size(0)
+            x = torch.index_select(x, self.dim, self.indices.view(-1))
+            x = x.view(bs, n_nodes, -1)
         else:
-            raise NotImplementedError()
+            raise RuntimeError(
+                'x.dim() is expected to be 2 or 3, but received {}'.format(
+                    x.dim()))
 
-    def forward(self, x, spiral_adj):
-        bsize, num_pts, feats = x.size()
-        _, _, spiral_size = spiral_adj.size()
+        x = self.layer(x)
+        return x
 
-        spirals_index = spiral_adj.view(bsize * num_pts * spiral_size)  # [1d array of batch,vertx,vertx-adj]
-        batch_index = torch.arange(bsize, device=self.device).view(-1, 1).repeat([1, num_pts * spiral_size]).view(-1).long()  # [0*numpt,1*numpt,etc.]
-        spirals = x[batch_index, spirals_index, :].view(bsize * num_pts,
-                                                        spiral_size * feats)  # [bsize*numpt, spiral*feats]
+    def __repr__(self):
+        return '{}({}, {}, seq_length={})'.format(self.__class__.__name__,
+                                                  self.in_channels,
+                                                  self.out_channels,
+                                                  self.seq_length)
 
-        out_feat = self.conv(spirals)
-        out_feat = self.activation(out_feat)
-
-        out_feat = out_feat.view(bsize, num_pts, self.out_c)
-        zero_padding = torch.ones((1, x.size(1), 1), device=self.device)
-        zero_padding[0, -1, 0] = 0.0
-        out_feat = out_feat * zero_padding
-
-        return out_feat
 
 
 class SpiralAutoencoder(nn.Module):
-    def __init__(self, filters_enc, filters_dec, latent_size, sizes, spiral_sizes, spirals, D, U, device,
-                 activation='elu'):
+    def __init__(self, in_channels, out_channels, latent_channels,
+                 spiral_indices, down_transform, up_transform):
         super(SpiralAutoencoder, self).__init__()
-        self.latent_size = latent_size
-        self.sizes = sizes
-        self.spirals = spirals
-        self.filters_enc = filters_enc
-        self.filters_dec = filters_dec
-        self.spiral_sizes = spiral_sizes
-        self.D = D
-        self.U = U
-        self.device = device
-        self.activation = activation
-        self.weights = 0.5
+        self.in_channels = in_channels
+        self.out_channels = out_channels
+        self.latent_channels = latent_channels
+        self.spiral_indices = spiral_indices
+        self.down_transform = down_transform
+        self.up_transform = up_transform
+        self.num_vert = self.down_transform[-1].size(0)
 
-        self.conv_enc = []
-        input_size = filters_enc[0][0]
-        for i in range(len(spiral_sizes) - 1):
-            if filters_enc[1][i]:
-                self.conv_enc.append(SpiralConv(input_size, spiral_sizes[i], filters_enc[1][i],
-                                            activation=self.activation, device=device).to(device))
-                input_size = filters_enc[1][i]
-
-            self.conv_enc.append(SpiralConv(input_size, spiral_sizes[i], filters_enc[0][i + 1],
-                                        activation=self.activation, device=device).to(device))
-            input_size = filters_enc[0][i + 1]
-
-        self.conv_enc = nn.ModuleList(self.conv_enc)
-        
-        self.fc_latent_enc = nn.Linear((sizes[-1] + 1) * input_size, latent_size)
-
-        self.fc_latent_dec = nn.Linear(latent_size * 2, (sizes[-1] + 1) * filters_dec[0][0])
-
-        self.dconv = []
-        input_size = filters_dec[0][0]
-        for i in range(len(spiral_sizes) - 1):
-            if i != len(spiral_sizes) - 2:
-                self.dconv.append(SpiralConv(input_size, spiral_sizes[-2 - i], filters_dec[0][i + 1],
-                                             activation=self.activation, device=device).to(device))
-                input_size = filters_dec[0][i + 1]
-
-                if filters_dec[1][i + 1]:
-                    self.dconv.append(SpiralConv(input_size, spiral_sizes[-2 - i], filters_dec[1][i + 1],
-                                                 activation=self.activation, device=device).to(device))
-                    input_size = filters_dec[1][i + 1]
+        # encoder
+        self.en_layers = nn.ModuleList()
+        for idx in range(len(out_channels)):
+            if idx == 0:
+                self.en_layers.append(
+                    SpiralEnblock(in_channels, out_channels[idx],
+                                  self.spiral_indices[idx]))
             else:
-                if filters_dec[1][i + 1]:
-                    self.dconv.append(SpiralConv(input_size, spiral_sizes[-2 - i], filters_dec[0][i + 1],
-                                                 activation=self.activation, device=device).to(device))
-                    input_size = filters_dec[0][i + 1]
-                    self.dconv.append(SpiralConv(input_size, spiral_sizes[-2 - i], filters_dec[1][i + 1],
-                                                 activation='identity', device=device).to(device))
-                    input_size = filters_dec[1][i + 1]
-                else:
-                    self.dconv.append(SpiralConv(input_size, spiral_sizes[-2 - i], filters_dec[0][i + 1],
-                                                 activation='identity', device=device).to(device))
-                    input_size = filters_dec[0][i + 1]
+                self.en_layers.append(
+                    SpiralEnblock(out_channels[idx - 1], out_channels[idx],
+                                  self.spiral_indices[idx]))
+        self.en_layers.append(
+            nn.Linear(self.num_vert * out_channels[-1], latent_channels))
 
-        self.dconv = nn.ModuleList(self.dconv)
-        
-<<<<<<< HEAD
-        self.audio_embedding = nn.Linear(768*3, 64)
-=======
+        # decoder
+        self.de_layers = nn.ModuleList()
+        self.de_layers.append(
+            nn.Linear(latent_channels*2, self.num_vert * out_channels[-1]))
+        for idx in range(len(out_channels)):
+            if idx == 0:
+                self.de_layers.append(
+                    SpiralDeblock(out_channels[-idx - 1],
+                                  out_channels[-idx - 1],
+                                  self.spiral_indices[-idx - 1]))
+            else:
+                self.de_layers.append(
+                    SpiralDeblock(out_channels[-idx], out_channels[-idx - 1],
+                                  self.spiral_indices[-idx - 1]))
+        self.de_layers.append(
+            SpiralConv(out_channels[0], in_channels, self.spiral_indices[0]))
+
         self.audio_embedding = nn.Linear(768, 64)
->>>>>>> a1c21ddfa0446ff54c0c27404d6024b5ae37ec36
+        self.lstm = nn.LSTM(input_size=64*2, hidden_size=64, num_layers=3, batch_first=True, bidirectional=True)
+
+        self.reset_parameters()
+
+    def reset_parameters(self):
+        for name, param in self.named_parameters():
+            if 'bias' in name:
+                nn.init.constant_(param, 0)
+            else:
+                nn.init.xavier_uniform_(param)
 
     def encode(self, x):
-        bsize = x.size(0)
-        S = self.spirals
-        D = self.D
-
-        j = 0
-        for i in range(len(self.spiral_sizes) - 1):
-            x = self.conv_enc[j](x, S[i].repeat(bsize, 1, 1))
-            j += 1
-            if self.filters_enc[1][i]:
-                x = self.conv_enc[j](x, S[i].repeat(bsize, 1, 1))
-                j += 1
-            x = torch.matmul(D[i], x)
-        x = x.view(bsize, -1)
-        
-        return self.fc_latent_enc(x)
-    
-
-    def decode(self, z):
-        bsize = z.size(0)
-        S = self.spirals
-        U = self.U
-
-        x = self.fc_latent_dec(z)
-        x = x.view(bsize, self.sizes[-1] + 1, -1)
-        j = 0
-        for i in range(len(self.spiral_sizes) - 1):
-            x = torch.matmul(U[-1 - i], x)
-            x = self.dconv[j](x, S[-2 - i].repeat(bsize, 1, 1))
-            j += 1
-            if self.filters_dec[1][i + 1]:
-                x = self.dconv[j](x, S[-2 - i].repeat(bsize, 1, 1))
-                j += 1
-        return x
-    
-    def predict(self, audio, actor):
-        
-        pred_sequence = actor
-        for i in range(audio.shape[1]):
-            if i == 0:
-<<<<<<< HEAD
-                audio_input = torch.cat([audio[:, i, :], audio[:, i, :], audio[:, i, :]], dim=1)
-                z = self.encode(actor - actor)
-                z = torch.cat([z, self.audio_embedding(audio_input)], dim=1)
-                x = self.decode(z) + actor
-                pred_sequence = torch.vstack([pred_sequence, x])
-            if i == 1:
-                audio_input = torch.cat([audio[:, i, :], audio[:, i-1, :], audio[:, i-1, :]], dim=1)
-                z = self.encode(x - actor)
-                z = torch.cat([z, self.audio_embedding(audio_input)], dim=1)
-                x = self.decode(z) + actor
-                pred_sequence = torch.vstack([pred_sequence, x])
-            if i > 1:
-                audio_input = torch.cat([audio[:, i, :], audio[:, i-1, :], audio[:, i-2, :]], dim=1)
-                z = self.encode(x - actor)
-                z = torch.cat([z, self.audio_embedding(audio_input)], dim=1)
-=======
-                z = self.encode(actor)
-                z = torch.cat([z, self.audio_embedding(audio[:, i, :])], dim=1)
-                x = self.decode(z) + actor
-                pred_sequence = torch.vstack([pred_sequence, x])
+        for i, layer in enumerate(self.en_layers):
+            if i != len(self.en_layers) - 1:
+                x = layer(x, self.down_transform[i])
             else:
-                z = self.encode(x)
-                z = torch.cat([z, self.audio_embedding(audio[:, i, :])], dim=1)
->>>>>>> a1c21ddfa0446ff54c0c27404d6024b5ae37ec36
-                x = self.decode(z) + actor
-                pred_sequence = torch.vstack([pred_sequence, x])
-                
+                x = x.view(-1, layer.weight.size(1))
+                x = layer(x)
+        return x
+
+    def decode(self, x):
+        num_layers = len(self.de_layers)
+        num_features = num_layers - 2
+        for i, layer in enumerate(self.de_layers):
+            if i == 0:
+                x = layer(x)
+                x = x.view(-1, self.num_vert, self.out_channels[-1])
+            elif i != num_layers - 1:
+                x = layer(x, self.up_transform[num_features - i])
+            else:
+                x = layer(x)
+        return x
+
+    def forward(self, audio, actor):
+        pred_sequence = actor
+        audio_emb = self.audio_embedding(audio)
+        actor_emb = self.encode(actor)
+        actor_emb = actor_emb.expand(audio_emb.shape)
+        latent = torch.cat([audio_emb, actor_emb], dim=2)
+        for k in range(latent.shape[1]):
+            pred = self.decode(latent[:, k, :]) + actor
+            pred_sequence = torch.vstack([pred_sequence, pred])
         return pred_sequence[1:, :, :]
-    
-<<<<<<< HEAD
-    def forward(self, audio_0, audio_1, audio_2, face, actor):
-        audio = torch.cat([audio_0, audio_1, audio_2], dim=1)
-        z = self.encode(face - actor)
-=======
-    def forward(self, audio, face, actor):
-        z = self.encode(face)
->>>>>>> a1c21ddfa0446ff54c0c27404d6024b5ae37ec36
-        z = torch.cat([z, self.audio_embedding(audio)], dim=1)
-        pred = self.decode(z)
-        return pred + actor
 
-<<<<<<< HEAD
-    
-=======
->>>>>>> a1c21ddfa0446ff54c0c27404d6024b5ae37ec36
+    def predict(self, audio, actor):
+        pred_sequence = actor
+        audio_emb = self.audio_embedding(audio)
+        actor_emb = self.encode(actor)
+        actor_emb = actor_emb.expand(audio_emb.shape)
+        latent = torch.cat([audio_emb, actor_emb], dim=2)
+        for k in range(latent.shape[1]):
+            pred = self.decode(latent[:, k, :]) + actor
+            pred_sequence = torch.vstack([pred_sequence, pred])
+        return pred_sequence[1:, :, :]
 
-    

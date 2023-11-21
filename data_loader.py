@@ -7,7 +7,7 @@ import pickle
 from tqdm import tqdm
 from transformers import Wav2Vec2Processor
 import librosa
-from model.S2L import Get_landmarks as Get_landmarks
+from wav2vec import Wav2Vec2Model
 
 
 class Dataset(data.Dataset):
@@ -24,10 +24,10 @@ class Dataset(data.Dataset):
         # seq_len, fea_dim
         file_name = self.data[index]["name"]
         audio = self.data[index]["audio"]
-        landmarks = self.data[index]["landmarks"]
+        vertices = self.data[index]["vertices"]
         template = self.data[index]["template"]
 
-        return torch.FloatTensor(audio), torch.FloatTensor(landmarks), torch.FloatTensor(template), file_name
+        return torch.FloatTensor(audio), torch.FloatTensor(vertices), torch.FloatTensor(template), file_name
 
     def __len__(self):
         return self.len
@@ -41,33 +41,39 @@ def read_data(args):
     test_data = []
 
     audio_path = args.wav_path
-    landmarks_path = args.landmarks_path
+    vertices_path = args.vertices_path
     processor = Wav2Vec2Processor.from_pretrained("facebook/wav2vec2-base-960h")
+    audio_encoder = Wav2Vec2Model.from_pretrained("facebook/wav2vec2-base-960h")
 
+    
     template_file = args.template_file
     with open(template_file, 'rb') as fin:
         templates = pickle.load(fin, encoding='latin1')
-
+    k=0
     for r, ds, fs in os.walk(audio_path):
         for f in tqdm(fs):
             if f.endswith("wav"):
                 wav_path = os.path.join(r, f)
                 speech_array, sampling_rate = librosa.load(wav_path, sr=16000)
-                input_values = np.squeeze(processor(speech_array, sampling_rate=16000).input_values)
+                audio_feature = np.squeeze(processor(speech_array, sampling_rate=16000).input_values)
+                audio_feature = np.reshape(audio_feature, (-1, audio_feature.shape[0]))
+                audio_feature = torch.FloatTensor(audio_feature)
                 key = f.replace("wav", "npy")
-                data[key]["audio"] = input_values
                 subject_id = "_".join(key.split("_")[:-1])
                 temp = templates[subject_id]
                 data[key]["name"] = f
-                landmarks_temp = Get_landmarks.get_landmarks(temp)
-                data[key]["template"] = landmarks_temp.reshape((-1))
-                landmarks_path_ = os.path.join(landmarks_path, f.replace("wav", "npy"))
-                if not os.path.exists(landmarks_path_):
+                data[key]["template"] = temp
+                vertices_path_ = os.path.join(vertices_path, f.replace("wav", "npy"))
+                if not os.path.exists(vertices_path_):
                     del data[key]
                 else:
-                    landmarks = np.load(landmarks_path_, allow_pickle=True)
-                    data[key]["landmarks"] = landmarks
-
+                    vertices = np.load(vertices_path_, allow_pickle=True)[::2, :]
+                    data[key]["vertices"] = np.reshape(vertices, (vertices.shape[0], 5023, 3))
+                hidden_states = audio_encoder(audio_feature, frame_num=len(vertices)).last_hidden_state
+                data[key]["audio"] = hidden_states.squeeze(0)
+                k+=1
+                if k==10:
+                    break
 
     subjects_dict = {}
     subjects_dict["train"] = [i for i in args.train_subjects.split(" ")]
