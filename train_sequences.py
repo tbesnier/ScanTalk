@@ -174,7 +174,9 @@ def train(args):
                 #Sample from external audio and face
                 speech_array, sampling_rate = librosa.load(args.sample_audio, sr=16000)
                 audio_feature = np.squeeze(processor(speech_array, sampling_rate=sampling_rate).input_values)
-                gen_seq = d2d.predict(torch.tensor(audio_feature).to(args.device), template_vertices.float())
+                audio_feature = np.reshape(audio_feature,(-1,audio_feature.shape[0]))
+                audio_feature = torch.FloatTensor(audio_feature).to(device=args.device)
+                gen_seq = d2d.predict(audio_feature, template_vertices.float())
                 
                 gen_seq = gen_seq.cpu().detach().numpy()
                 
@@ -186,6 +188,8 @@ def train(args):
                 #Sample from training set
                 speech_array, sampling_rate = librosa.load(args.training_sample_audio, sr=16000)
                 audio_feature = np.squeeze(processor(speech_array, sampling_rate=sampling_rate).input_values)
+                audio_feature = np.reshape(audio_feature,(-1,audio_feature.shape[0]))
+                audio_feature = torch.FloatTensor(audio_feature).to(device=args.device)
                 with open(args.template_file, 'rb') as fin:
                     templates = pickle.load(fin, encoding='latin1')
 
@@ -193,7 +197,7 @@ def train(args):
                 
                 face = torch.tensor(face).to(args.device)
                 
-                gen_seq = d2d.predict(torch.tensor(audio_feature).to(args.device), face.float().unsqueeze(0))
+                gen_seq = d2d.predict(audio_feature, face.float().unsqueeze(0))
                 
                 gen_seq = gen_seq.cpu().detach().numpy()
                 
