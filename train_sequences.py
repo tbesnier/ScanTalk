@@ -165,7 +165,7 @@ def train(args):
                     audio = sample[0].to(device)
                     vertices = sample[1].to(device).squeeze(0)
                     template = sample[2].to(device)
-                    vertices_pred = d2d.forward(audio, template)
+                    vertices_pred = d2d.forward(audio, template, vertices)
                     #loss_ = criterion.forward_weighted(vertices, vertices_pred)
                     loss_ = criterion(vertices, vertices_pred)
                     t_test_loss += loss_
