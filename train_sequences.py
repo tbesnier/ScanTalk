@@ -129,7 +129,7 @@ def train(args):
         starting_epoch = checkpoint['epoch']
         print(starting_epoch)
     
-    criterion = nn.MSELoss()#Masked_Loss(args) #Masked_Loss(args)  # nn.MSELoss()
+    criterion = Masked_Loss(args) #Masked_Loss(args)  # nn.MSELoss()
 
     optim = torch.optim.Adam(d2d.parameters(), lr=args.lr)
 
@@ -145,8 +145,8 @@ def train(args):
             vertices_pred = d2d.forward(audio, template, vertices)
             optim.zero_grad()
 
-            #loss = criterion.forward_weighted(vertices, vertices_pred) + criterion(vertices_pred - template, vertices - template)ù
-            loss = criterion(vertices, vertices_pred)
+            loss = criterion.forward_weighted(vertices, vertices_pred) + 0.1 * criterion(vertices_pred - template, vertices - template)
+            #loss = criterion(vertices, vertices_pred)
             torch.nn.utils.clip_grad_norm_(d2d.parameters(), 10.0)
             loss.backward()
             optim.step()
@@ -180,10 +180,10 @@ def train(args):
                 
                 gen_seq = gen_seq.cpu().detach().numpy()
                 
-                os.makedirs('/home/federico/Scrivania/ST/Data/saves/Meshes/' + str(epoch), exist_ok=True)
+                os.makedirs('/home/federico/Scrivania/ST/Data/saves/Meshes_Zero_Init_Masked_Loss/' + str(epoch), exist_ok=True)
                 for m in range(len(gen_seq)):
                     mesh = trimesh.Trimesh(gen_seq[m], template_tri)
-                    mesh.export('/home/federico/Scrivania/ST/Data/saves/Meshes/' + str(epoch) + '/frame_' + str(m).zfill(3) + '.ply')
+                    mesh.export('/home/federico/Scrivania/ST/Data/saves/Meshes_Zero_Init_Masked_Loss/' + str(epoch) + '/frame_' + str(m).zfill(3) + '.ply')
                 
                 #Sample from training set
                 speech_array, sampling_rate = librosa.load(args.training_sample_audio, sr=16000)
@@ -201,15 +201,15 @@ def train(args):
                 
                 gen_seq = gen_seq.cpu().detach().numpy()
                 
-                os.makedirs('/home/federico/Scrivania/ST/Data/saves/Meshes_Training/' + str(epoch), exist_ok=True)
+                os.makedirs('/home/federico/Scrivania/ST/Data/saves/Meshes_Training_Zero_Init_Masked_Loss/' + str(epoch), exist_ok=True)
                 for m in range(len(gen_seq)):
                     mesh = trimesh.Trimesh(gen_seq[m], template_tri)
-                    mesh.export('/home/federico/Scrivania/ST/Data/saves/Meshes_Training/' + str(epoch) + '/frame_' + str(m).zfill(3) + '.ply')
+                    mesh.export('/home/federico/Scrivania/ST/Data/saves/Meshes_Training_Zero_Init_Masked_Loss/' + str(epoch) + '/frame_' + str(m).zfill(3) + '.ply')
          
         torch.save({'epoch': epoch,
                     'autoencoder_state_dict': d2d.state_dict(),
                     'optimizer_state_dict': optim.state_dict(),
-                    }, os.path.join(args.result_dir, 'd2d_ScanTalk_new_training_strat_disp.pth.tar'))
+                    }, os.path.join(args.result_dir, 'd2d_ScanTalk_new_training_strat_disp_weights_to_zero_masked_loss.pth.tar'))
                
             
 
@@ -218,7 +218,7 @@ def main():
     parser.add_argument("--lr", type=float, default=0.0001, help='learning rate')
     parser.add_argument('--weight_decay', type=float, default=0)
     parser.add_argument("--reference_mesh_file", type=str, default='/home/federico/Scrivania/ScanTalk2.0/ScanTalk-thomas/template/flame_model/FLAME_sample.ply', help='path of the template')
-    parser.add_argument("--epochs", type=int, default=200, help='number of epochs')
+    parser.add_argument("--epochs", type=int, default=300, help='number of epochs')
     parser.add_argument("--device", type=str, default="cuda")
     parser.add_argument("--result_dir", type=str, default='/home/federico/Scrivania/ST/Data/results')
     parser.add_argument("--sample_audio", type=str, default='/home/federico/Scrivania/TH/photo.wav')

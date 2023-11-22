@@ -51,7 +51,7 @@ class SpiralDeblock(nn.Module):
         return out
 
 class SpiralConv(nn.Module):
-    def __init__(self, in_channels, out_channels, indices, dim=1):
+    def __init__(self, in_channels, out_channels, indices, dim=1, init=False):
         super(SpiralConv, self).__init__()
         self.dim = dim
         self.indices = indices
@@ -60,11 +60,19 @@ class SpiralConv(nn.Module):
         self.seq_length = indices.size(1)
 
         self.layer = nn.Linear(in_channels * self.seq_length, out_channels)
-        self.reset_parameters()
+        
+        
+        if init==True:
+            nn.init.constant_(self.layer.weight, 0)
+            nn.init.constant_(self.layer.bias, 0)
+        else:
+            self.reset_parameters()
+            
 
     def reset_parameters(self):
         torch.nn.init.xavier_uniform_(self.layer.weight)
         torch.nn.init.constant_(self.layer.bias, 0)
+        
 
     def forward(self, x):
         n_nodes, _ = self.indices.size()
@@ -135,12 +143,12 @@ class SpiralAutoencoder(nn.Module):
                     SpiralDeblock(out_channels[-idx], out_channels[-idx - 1],
                                   self.spiral_indices[-idx - 1]))
         self.de_layers.append(
-            SpiralConv(out_channels[0], in_channels, self.spiral_indices[0]))
+            SpiralConv(out_channels[0], in_channels, self.spiral_indices[0], init=True))
 
         self.audio_embedding = nn.Linear(768, self.latent_channels)
         self.lstm = nn.LSTM(input_size=self.latent_channels*2, hidden_size=int(self.latent_channels/2), num_layers=3, batch_first=True, bidirectional=True)
 
-        #self.reset_parameters_to_zero()
+        #self.reset_parameters()
 
     def reset_parameters(self):
         for name, param in self.named_parameters():
