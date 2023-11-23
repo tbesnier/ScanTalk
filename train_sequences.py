@@ -23,13 +23,7 @@ import scipy
 class Masked_Loss(nn.Module):
     def __init__(self, args):
         super(Masked_Loss, self).__init__()
-        self.indices = np.load(args.mask_path)
-        self.mask = torch.zeros((5023, 3))
-        self.mask[self.indices] = 1
-        self.mask = self.mask.to(args.device)
         self.mse = nn.MSELoss(reduction='none')
-        self.number_of_indices = self.indices.shape[0]
-
         self.weights = np.load('/home/federico/Scrivania/ST/ScanTalk/template/template/Normalized_d_weights.npy', allow_pickle=True)
         self.weights = torch.from_numpy(self.weights[:-1]).float().to(args.device)
 
