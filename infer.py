@@ -1,5 +1,4 @@
 import numpy as np
-import polyscope as ps
 import argparse
 import os, glob, shutil
 import spiral_utils

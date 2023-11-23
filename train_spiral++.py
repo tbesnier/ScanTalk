@@ -8,14 +8,10 @@ import numpy as np
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
-from sklearn.metrics.pairwise import euclidean_distances
 import argparse
 from tqdm import tqdm
-#from d2d import SpiralAutoencoder
 from d2d_plus import SpiralAutoencoder
-#from transformers import AutoProcessor
 import librosa
-#from wavlm import WavLMModel
 from transformers import Wav2Vec2Processor
 from wav2vec import Wav2Vec2Model
 from psbody.mesh import Mesh
