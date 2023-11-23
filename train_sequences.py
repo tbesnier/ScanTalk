@@ -32,25 +32,17 @@ class Masked_Loss(nn.Module):
         self.weights = torch.from_numpy(self.weights[:-1]).float().to(args.device)
 
     def forward(self, predictions, target):
-        #mb = predictions.shape[0]
+        
         rec_loss = torch.mean(self.mse(predictions, target))
-
-        #mouth_rec_loss = torch.sum(self.mse(predictions * self.mask, target * self.weights)) / (
-        #           self.number_of_indices * mb)
+        
+        landmarks_loss = (self.mse(predictions, target).mean(axis=2) * self.weights).mean()
 
         #prediction_shift = predictions[:, 1:, :] - predictions[:, :-1, :]
         #target_shift = target[:, 1:, :] - target[:, :-1, :]
 
-        #vel_loss = torch.mean(
-        #    (self.mse(prediction_shift, target_shift)))
+        #vel_loss = torch.mean((self.mse(prediction_shift, target_shift)))
 
-        return rec_loss# + mouth_rec_loss# + 0.2*vel_loss
-
-    def forward_weighted(self, predictions, target):
-
-        L = (torch.matmul(self.weights, self.mse(predictions, target))).mean()
-
-        return L
+        return rec_loss + 10 * landmarks_loss #+ vel_loss
 
 def train(args):
 
@@ -130,6 +122,7 @@ def train(args):
         print(starting_epoch)
     
     criterion = Masked_Loss(args) #Masked_Loss(args)  # nn.MSELoss()
+    criterion_val = nn.MSELoss()
 
     optim = torch.optim.Adam(d2d.parameters(), lr=args.lr)
 
@@ -145,8 +138,7 @@ def train(args):
             vertices_pred = d2d.forward(audio, template, vertices)
             optim.zero_grad()
 
-            loss = criterion.forward_weighted(vertices, vertices_pred) + 0.1 * criterion(vertices_pred - template, vertices - template)
-            #loss = criterion(vertices, vertices_pred)
+            loss = criterion(vertices, vertices_pred) 
             torch.nn.utils.clip_grad_norm_(d2d.parameters(), 10.0)
             loss.backward()
             optim.step()
@@ -165,9 +157,8 @@ def train(args):
                     vertices = sample[1].to(device).squeeze(0)
                     template = sample[2].to(device)
                     vertices_pred = d2d.forward(audio, template, vertices)
-                    #loss_ = criterion.forward_weighted(vertices, vertices_pred)
-                    loss_ = criterion(vertices, vertices_pred)
-                    t_test_loss += loss_
+                    loss = criterion_val(vertices, vertices_pred)
+                    t_test_loss += loss.item()
                     pbar_talk.set_description(
                                     "(Epoch {}) VAL LOSS:{:.10f}".format((epoch + 1), (t_test_loss)/(b+1)))
                 
@@ -180,10 +171,10 @@ def train(args):
                 
                 gen_seq = gen_seq.cpu().detach().numpy()
                 
-                os.makedirs('/home/federico/Scrivania/ST/Data/saves/Meshes_Zero_Init_Masked_Loss/' + str(epoch), exist_ok=True)
+                os.makedirs('/home/federico/Scrivania/ST/Data/saves/Meshes_Zero_Init_Masked_Loss_with_Lambda/' + str(epoch), exist_ok=True)
                 for m in range(len(gen_seq)):
                     mesh = trimesh.Trimesh(gen_seq[m], template_tri)
-                    mesh.export('/home/federico/Scrivania/ST/Data/saves/Meshes_Zero_Init_Masked_Loss/' + str(epoch) + '/frame_' + str(m).zfill(3) + '.ply')
+                    mesh.export('/home/federico/Scrivania/ST/Data/saves/Meshes_Zero_Init_Masked_Loss_with_Lambda/' + str(epoch) + '/frame_' + str(m).zfill(3) + '.ply')
                 
                 #Sample from training set
                 speech_array, sampling_rate = librosa.load(args.training_sample_audio, sr=16000)
@@ -201,21 +192,21 @@ def train(args):
                 
                 gen_seq = gen_seq.cpu().detach().numpy()
                 
-                os.makedirs('/home/federico/Scrivania/ST/Data/saves/Meshes_Training_Zero_Init_Masked_Loss/' + str(epoch), exist_ok=True)
+                os.makedirs('/home/federico/Scrivania/ST/Data/saves/Meshes_Training_Zero_Init_Masked_Loss_with_Lambda/' + str(epoch), exist_ok=True)
                 for m in range(len(gen_seq)):
                     mesh = trimesh.Trimesh(gen_seq[m], template_tri)
-                    mesh.export('/home/federico/Scrivania/ST/Data/saves/Meshes_Training_Zero_Init_Masked_Loss/' + str(epoch) + '/frame_' + str(m).zfill(3) + '.ply')
+                    mesh.export('/home/federico/Scrivania/ST/Data/saves/Meshes_Training_Zero_Init_Masked_Loss_with_Lambda/' + str(epoch) + '/frame_' + str(m).zfill(3) + '.ply')
          
         torch.save({'epoch': epoch,
                     'autoencoder_state_dict': d2d.state_dict(),
                     'optimizer_state_dict': optim.state_dict(),
-                    }, os.path.join(args.result_dir, 'd2d_ScanTalk_new_training_strat_disp_weights_to_zero_masked_loss.pth.tar'))
+                    }, os.path.join(args.result_dir, 'd2d_ScanTalk_new_training_strat_disp_weights_to_zero_masked_loss_with_lambda.pth.tar'))
                
             
 
 def main():
     parser = argparse.ArgumentParser(description='D2D: Dense to Dense Encoder-Decoder')
-    parser.add_argument("--lr", type=float, default=0.0001, help='learning rate')
+    parser.add_argument("--lr", type=float, default=0.00005, help='learning rate')
     parser.add_argument('--weight_decay', type=float, default=0)
     parser.add_argument("--reference_mesh_file", type=str, default='/home/federico/Scrivania/ScanTalk2.0/ScanTalk-thomas/template/flame_model/FLAME_sample.ply', help='path of the template')
     parser.add_argument("--epochs", type=int, default=300, help='number of epochs')
@@ -244,9 +235,9 @@ def main():
                         nargs='+',
                         default=[32, 64, 64, 128],#divided by 2
                         type=int)
-    parser.add_argument('--latent_channels', type=int, default=64)
+    parser.add_argument('--latent_channels', type=int, default=32)
     parser.add_argument('--in_channels', type=int, default=3)
-    parser.add_argument('--seq_length', type=int, default=[12, 12, 12, 12], nargs='+')
+    parser.add_argument('--seq_length', type=int, default=[9, 9, 9, 9], nargs='+')
     parser.add_argument('--dilation', type=int, default=[1, 1, 1, 1], nargs='+')
 
     args = parser.parse_args()
