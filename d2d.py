@@ -146,7 +146,7 @@ class SpiralAutoencoder(nn.Module):
             SpiralConv(out_channels[0], in_channels, self.spiral_indices[0], init=True))
 
         self.audio_embedding = nn.Linear(768, self.latent_channels)
-        self.lstm = nn.LSTM(input_size=self.latent_channels*2, hidden_size=int(self.latent_channels/2), num_layers=3, batch_first=True, bidirectional=True)
+        self.lstm = nn.LSTM(input_size=self.latent_channels*2, hidden_size=int(self.latent_channels/2), num_layers=5, batch_first=True, bidirectional=True)
 
         #self.reset_parameters()
 

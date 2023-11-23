@@ -17,6 +17,8 @@ from wav2vec import Wav2Vec2Model
 from psbody.mesh import Mesh
 from utils import utils, mesh_sampling
 from data_loader import get_dataloaders
+import scipy
+
 
 class Masked_Loss(nn.Module):
     def __init__(self, args):
@@ -37,12 +39,36 @@ class Masked_Loss(nn.Module):
         
         landmarks_loss = (self.mse(predictions, target).mean(axis=2) * self.weights).mean()
 
-        #prediction_shift = predictions[:, 1:, :] - predictions[:, :-1, :]
-        #target_shift = target[:, 1:, :] - target[:, :-1, :]
+        prediction_shift = predictions[:, 1:, :] - predictions[:, :-1, :]
+        target_shift = target[:, 1:, :] - target[:, :-1, :]
 
-        #vel_loss = torch.mean((self.mse(prediction_shift, target_shift)))
+        vel_loss = torch.mean((self.mse(prediction_shift, target_shift)))
 
-        return rec_loss + 10 * landmarks_loss #+ vel_loss
+        return rec_loss + 10 * landmarks_loss + 10 * vel_loss
+
+class My_Masked_Loss(nn.Module):
+    def __init__(self, args):
+        super(My_Masked_Loss, self).__init__()
+        self.indices = np.load(args.mask_path)
+        self.mask = torch.zeros((5023, 3))
+        self.mask[self.indices] = 1
+        self.mask = self.mask.to(args.device)
+        self.mse = nn.MSELoss(reduction='none')
+        self.number_of_indices = self.indices.shape[0]
+
+    def forward(self, predictions, target):
+        
+        rec_loss = torch.mean(self.mse(predictions, target))
+        
+        masked_rec_loss = (self.mse(predictions, target) * self.mask).sum()/(self.number_of_indices * predictions.shape[0] * 3)
+
+        prediction_shift = predictions[:, 1:, :] - predictions[:, :-1, :]
+        target_shift = target[:, 1:, :] - target[:, :-1, :]
+
+        vel_loss = torch.mean((self.mse(prediction_shift, target_shift)))
+
+        return rec_loss + masked_rec_loss + 10 * vel_loss
+
 
 def train(args):
 
@@ -120,8 +146,14 @@ def train(args):
         d2d.load_state_dict(checkpoint['autoencoder_state_dict'])
         starting_epoch = checkpoint['epoch']
         print(starting_epoch)
+        
+    lip_mask = scipy.io.loadmat('/home/federico/Scrivania/ST/ScanTalk/FLAME_lips_idx.mat')
     
-    criterion = Masked_Loss(args) #Masked_Loss(args)  # nn.MSELoss()
+    lip_mask = lip_mask['lips_idx'] - 1 
+    
+    lip_mask = np.reshape(np.array(lip_mask, dtype=np.int64), (lip_mask.shape[0]))
+    
+    criterion = Masked_Loss(args) 
     criterion_val = nn.MSELoss()
 
     optim = torch.optim.Adam(d2d.parameters(), lr=args.lr)
@@ -145,7 +177,6 @@ def train(args):
             tloss += loss.item()
             pbar_talk.set_description(
                 "(Epoch {}) TRAIN LOSS:{:.10f}".format((epoch + 1), tloss/(b+1)))
-            
         
         if epoch % 10 == 0:
             d2d.eval()
@@ -161,6 +192,7 @@ def train(args):
                     t_test_loss += loss.item()
                     pbar_talk.set_description(
                                     "(Epoch {}) VAL LOSS:{:.10f}".format((epoch + 1), (t_test_loss)/(b+1)))
+                    
                 
                 #Sample from external audio and face
                 speech_array, sampling_rate = librosa.load(args.sample_audio, sr=16000)
@@ -171,10 +203,10 @@ def train(args):
                 
                 gen_seq = gen_seq.cpu().detach().numpy()
                 
-                os.makedirs('/home/federico/Scrivania/ST/Data/saves/Meshes_Zero_Init_Masked_Loss_with_Lambda/' + str(epoch), exist_ok=True)
+                os.makedirs('/home/federico/Scrivania/ST/Data/saves/Meshes_Masked_Velocity_Loss_Bigger_LSTM/' + str(epoch), exist_ok=True)
                 for m in range(len(gen_seq)):
                     mesh = trimesh.Trimesh(gen_seq[m], template_tri)
-                    mesh.export('/home/federico/Scrivania/ST/Data/saves/Meshes_Zero_Init_Masked_Loss_with_Lambda/' + str(epoch) + '/frame_' + str(m).zfill(3) + '.ply')
+                    mesh.export('/home/federico/Scrivania/ST/Data/saves/Meshes_Masked_Velocity_Loss_Bigger_LSTM/' + str(epoch) + '/frame_' + str(m).zfill(3) + '.ply')
                 
                 #Sample from training set
                 speech_array, sampling_rate = librosa.load(args.training_sample_audio, sr=16000)
@@ -192,15 +224,31 @@ def train(args):
                 
                 gen_seq = gen_seq.cpu().detach().numpy()
                 
-                os.makedirs('/home/federico/Scrivania/ST/Data/saves/Meshes_Training_Zero_Init_Masked_Loss_with_Lambda/' + str(epoch), exist_ok=True)
+                os.makedirs('/home/federico/Scrivania/ST/Data/saves/Meshes_Training_Masked_Velocity_Loss_Bigger_LSTM/' + str(epoch), exist_ok=True)
                 for m in range(len(gen_seq)):
                     mesh = trimesh.Trimesh(gen_seq[m], template_tri)
-                    mesh.export('/home/federico/Scrivania/ST/Data/saves/Meshes_Training_Zero_Init_Masked_Loss_with_Lambda/' + str(epoch) + '/frame_' + str(m).zfill(3) + '.ply')
+                    mesh.export('/home/federico/Scrivania/ST/Data/saves/Meshes_Training_Masked_Velocity_Loss_Bigger_LSTM/' + str(epoch) + '/frame_' + str(m).zfill(3) + '.ply')
          
         torch.save({'epoch': epoch,
                     'autoencoder_state_dict': d2d.state_dict(),
                     'optimizer_state_dict': optim.state_dict(),
-                    }, os.path.join(args.result_dir, 'd2d_ScanTalk_new_training_strat_disp_weights_to_zero_masked_loss_with_lambda.pth.tar'))
+                    }, os.path.join(args.result_dir, 'd2d_ScanTalk_bigger_lstm_masked_velocity_loss.pth.tar'))
+                    
+    with torch.no_grad():
+        d2d.eval()
+        error_lve = 0
+        count = 0
+        pbar_talk = tqdm(enumerate(dataset["test"]), total=len( dataset["test"]))
+        for b, sample in pbar_talk:
+            audio = sample[0].to(device)
+            vertices = sample[1].to(device).squeeze(0)
+            template = sample[2].to(device)
+            vertices_pred = d2d.forward(audio, template, vertices)
+            for k in range(vertices_pred.shape[0]):
+                error_lve += ((vertices_pred[k] - vertices[k]) ** 2)[lip_mask].max()
+                count += 1
+            pbar_talk.set_description(" LVE:{:.8f}".format((error_lve)/(b+1) * count))
+
                
             
 
