@@ -7,7 +7,7 @@ import torch
 import torch.nn as nn
 import argparse
 from tqdm import tqdm
-from model import SpiralAutoencoder
+from model.model_semi_registered import PointNet2SpiralsAutoEncoder
 import librosa
 from transformers import Wav2Vec2Processor
 from psbody.mesh import Mesh
@@ -125,9 +125,12 @@ def train(args):
 
     dataset = get_dataloaders(args)
 
-    d2d = SpiralAutoencoder(args.in_channels, args.out_channels, args.latent_channels,
-                            spiral_indices_list, down_transform_list,
-                            up_transform_list).to(device)
+    d2d = #PointNet2SpiralsAutoEncoder(args.in_channels, args.out_channels, args.latent_channels,
+          #                  spiral_indices_list, down_transform_list,
+           #                 up_transform_list).to(device)
+
+    d2d = PointNet2SpiralsAutoEncoder(args.latent_channels, args.in_channels, args.out_channels,
+                                spiral_indices_list, down_transform_list, up_transform_list).to(device)
 
     starting_epoch = 0
     if args.load_model == True:
