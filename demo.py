@@ -270,17 +270,16 @@ def generate_meshes(args):
 "FaceTalk_170915_00223_TA"
 '''
 
-
 def main():
     parser = argparse.ArgumentParser(description='D2D: Dense to Dense Encoder-Decoder')
     parser.add_argument("--reference_mesh_file", type=str, default='/home/federico/Scrivania/ST/ScanTalk/template/flame_model/FLAME_sample.ply', help='path of the template')
     parser.add_argument("--device", type=str, default="cuda")
-    parser.add_argument("--save_path", type=str, default='/home/federico/Scrivania/ST/Data/Demo_audio_french_female_26s')
-    parser.add_argument("--audio", type=str, default='/home/federico/Scrivania/ST/Data/Test_Audio/french_female_26s.wav')
+    parser.add_argument("--save_path", type=str, default='/home/federico/Scrivania/ST/Data/Demo_audio_20s')
+    parser.add_argument("--audio", type=str, default='/home/federico/Scrivania/ST/Data/Test_Audio/audio_20s.wav')
     parser.add_argument("--template_file", type=str, default="/home/federico/Scrivania/TH/S2L/vocaset/templates.pkl", help='faces to animate')
     parser.add_argument("--actor_name", type=str, default="FaceTalk_170809_00138_TA", help='face to animate')
     parser.add_argument("--model_path", type=str, default='/home/federico/Scrivania/ST/Data/results/d2d_ScanTalk_bigger_lstm_masked_velocity_loss.pth.tar')
-    parser.add_argument("--video_name", type=str, default='french_female.mp4')     
+    parser.add_argument("--video_name", type=str, default='audio_20s.mp4')     
     parser.add_argument("--fps", type=int, default=30, help='frames per second')
 
     ##Spiral++ hyperparameters

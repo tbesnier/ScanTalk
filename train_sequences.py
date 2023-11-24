@@ -10,6 +10,7 @@ from sklearn.metrics.pairwise import euclidean_distances
 import argparse
 from tqdm import tqdm
 from d2d import SpiralAutoencoder
+#from model.model_semi_registered import PointNet2SpiralsAutoEncoder
 import librosa
 import random
 from transformers import Wav2Vec2Processor
@@ -133,6 +134,9 @@ def train(args):
     d2d = SpiralAutoencoder(args.in_channels, args.out_channels, args.latent_channels,
            spiral_indices_list, down_transform_list,
            up_transform_list).to(device)
+    
+    #d2d = PointNet2SpiralsAutoEncoder(args.latent_channels, args.in_channels, args.out_channels,
+    #                            spiral_indices_list, down_transform_list, up_transform_list).to(device)
 
     starting_epoch = 0
     if args.load_model == True:
@@ -141,11 +145,6 @@ def train(args):
         starting_epoch = checkpoint['epoch'] + 1
         print(starting_epoch)
         
-    lip_mask = scipy.io.loadmat('/home/federico/Scrivania/ST/ScanTalk/FLAME_lips_idx.mat')
-    
-    lip_mask = lip_mask['lips_idx'] - 1 
-    
-    lip_mask = np.reshape(np.array(lip_mask, dtype=np.int64), (lip_mask.shape[0]))
     
     criterion = Masked_Loss(args) 
     criterion_val = nn.MSELoss()
@@ -197,10 +196,10 @@ def train(args):
                 
                 gen_seq = gen_seq.cpu().detach().numpy()
                 
-                os.makedirs('/home/federico/Scrivania/ST/Data/saves/Meshes_Masked_Velocity_Loss_Bigger_LSTM/' + str(epoch), exist_ok=True)
+                os.makedirs('/home/federico/Scrivania/ST/Data/saves/Meshes_Masked_Velocity_Loss_Bigger_LSTM_60/' + str(epoch), exist_ok=True)
                 for m in range(len(gen_seq)):
                     mesh = trimesh.Trimesh(gen_seq[m], template_tri)
-                    mesh.export('/home/federico/Scrivania/ST/Data/saves/Meshes_Masked_Velocity_Loss_Bigger_LSTM/' + str(epoch) + '/frame_' + str(m).zfill(3) + '.ply')
+                    mesh.export('/home/federico/Scrivania/ST/Data/saves/Meshes_Masked_Velocity_Loss_Bigger_LSTM_60/' + str(epoch) + '/frame_' + str(m).zfill(3) + '.ply')
                 
                 #Sample from training set
                 speech_array, sampling_rate = librosa.load(args.training_sample_audio, sr=16000)
@@ -218,33 +217,18 @@ def train(args):
                 
                 gen_seq = gen_seq.cpu().detach().numpy()
                 
-                os.makedirs('/home/federico/Scrivania/ST/Data/saves/Meshes_Training_Masked_Velocity_Loss_Bigger_LSTM/' + str(epoch), exist_ok=True)
+                os.makedirs('/home/federico/Scrivania/ST/Data/saves/Meshes_Training_Masked_Velocity_Loss_Bigger_LSTM_60/' + str(epoch), exist_ok=True)
                 for m in range(len(gen_seq)):
                     mesh = trimesh.Trimesh(gen_seq[m], template_tri)
-                    mesh.export('/home/federico/Scrivania/ST/Data/saves/Meshes_Training_Masked_Velocity_Loss_Bigger_LSTM/' + str(epoch) + '/frame_' + str(m).zfill(3) + '.ply')
-         
-            #with torch.no_grad():
-            #    d2d.eval()
-                error_lve = 0
-                count = 0
-                pbar_talk = tqdm(enumerate(dataset["test"]), total=len(dataset["test"]))
-                for b, sample in pbar_talk:
-                    audio = sample[0].to(device)
-                    vertices = sample[1].to(device).squeeze(0)
-                    template = sample[2].to(device)
-                    vertices_pred = d2d.forward(audio, template, vertices)
-                    for k in range(vertices_pred.shape[0]):
-                        error_lve += ((vertices_pred[k] - vertices[k]) ** 2)[lip_mask].max()
-                        count += 1
-                    pbar_talk.set_description(" LVE:{:.8f}".format((error_lve)/(count)))
-
-                torch.save({'epoch': epoch,
+                    mesh.export('/home/federico/Scrivania/ST/Data/saves/Meshes_Training_Masked_Velocity_Loss_Bigger_LSTM_60/' + str(epoch) + '/frame_' + str(m).zfill(3) + '.ply')
+                    
+        torch.save({'epoch': epoch,
                     'autoencoder_state_dict': d2d.state_dict(),
                     'optimizer_state_dict': optim.state_dict(),
-                    }, os.path.join(args.result_dir, 'd2d_ScanTalk_bigger_lstm_masked_velocity_loss.pth.tar'))
-                    
+                    }, os.path.join(args.result_dir, 'd2d_ScanTalk_bigger_lstm_masked_velocity_loss_60.pth.tar'))
 
-               
+        
+        
         
 def main():
     parser = argparse.ArgumentParser(description='D2D: Dense to Dense Encoder-Decoder')
@@ -277,7 +261,7 @@ def main():
                         nargs='+',
                         default=[32, 64, 64, 128],#divided by 2
                         type=int)
-    parser.add_argument('--latent_channels', type=int, default=128)
+    parser.add_argument('--latent_channels', type=int, default=64)
     parser.add_argument('--in_channels', type=int, default=3)
     parser.add_argument('--seq_length', type=int, default=[12, 12, 12, 12], nargs='+')
     parser.add_argument('--dilation', type=int, default=[1, 1, 1, 1], nargs='+')
