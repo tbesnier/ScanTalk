@@ -27,6 +27,8 @@ from pytorch3d.loss import (
 )
 from pytorch3d.structures import Meshes
 
+from model.model_semi_registered import PointNet2SpiralsAutoEncoder
+
 class Masked_Loss(nn.Module):
     def __init__(self, args):
         super(Masked_Loss, self).__init__()
@@ -159,13 +161,13 @@ def train(args):
                                                args.dataset_dir_frame,
                                                args.dataset_dir_actor,
                                                5,
-                                               1100)
+                                               11000)
     
     dataset_test = new_data_loader.TH_seq_Dataset(args.dataset_dir_audios,
                                               args.dataset_dir_frame,
                                               args.dataset_dir_actor,
-                                              1000,
-                                              1214)
+                                              10000,
+                                              12140)
 
 
     dataloader_train = DataLoader(dataset_train, batch_size=32,
@@ -175,9 +177,12 @@ def train(args):
                                  shuffle=True, num_workers=4)
 
 
-    d2d = SpiralAutoencoder(args.in_channels, args.out_channels, args.latent_channels,
-           spiral_indices_list, down_transform_list,
-           up_transform_list).to(device)
+    #d2d = SpiralAutoencoder(args.in_channels, args.out_channels, args.latent_channels,
+    #       spiral_indices_list, down_transform_list,
+    #       up_transform_list).to(device)
+
+    d2d = PointNet2SpiralsAutoEncoder(args.latent_channels, args.in_channels, args.out_channels,
+           spiral_indices_list, down_transform_list, up_transform_list).to(device)
 
     starting_epoch = 0
     if args.load_model == True:
@@ -186,7 +191,7 @@ def train(args):
         starting_epoch = checkpoint['epoch']
         print(starting_epoch)
     
-    criterion = Unsupervised_Loss(args) #Masked_Loss(args) #Masked_Loss(args)  # nn.MSELoss()
+    criterion = Masked_Loss(args)  ##Unsupervised_Loss(args) #Masked_Loss(args)  # nn.MSELoss()
 
     optim = torch.optim.Adam(d2d.parameters(), lr=args.lr)
 
@@ -202,7 +207,7 @@ def train(args):
             actor = sample['actor'].to(device)
             frame_pred = d2d.forward(audio, actor)
             #next_frame_pred = d2d.forward(next_audio, actor)
-            loss = criterion(frame, frame_pred) + criterion(frame_pred - actor, frame - actor)
+            loss = criterion.forward_weighted(frame, frame_pred) + criterion.forward_weighted(frame_pred - actor, frame - actor)
             torch.nn.utils.clip_grad_norm_(d2d.parameters(), 10.0)
             loss.backward()
             optim.step()

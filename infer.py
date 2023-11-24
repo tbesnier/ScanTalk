@@ -94,7 +94,8 @@ def infer(args):
         audio_feature = torch.FloatTensor(audio_feature)
         hidden_states = audio_encoder(audio_feature).last_hidden_state.to(args.device)
 
-        gen_seq = model.predict_new(hidden_states, template_vertices)
+        #gen_seq = model.predict_new(hidden_states, template_vertices)
+        gen_seq = model.predict_cat_audio(hidden_states, template_vertices)
         gen_seq = gen_seq.cpu().detach().numpy()
 
         for m in range(len(gen_seq)):
@@ -113,10 +114,10 @@ def main():
     parser.add_argument("--result_dir", type=str, default='../Data/VOCA/res/Results_Actor/Meshes_infer/')
     parser.add_argument("--reference_mesh_file", type=str, default='./template/flame_model/FLAME_sample.ply',
                         help='path of the template')
-    parser.add_argument("--sample_audio", type=str, default='../Data/VOCA/res/TH/photo_new.wav')
+    parser.add_argument("--sample_audio", type=str, default='../Data/VOCA/res/TH/photo.wav')
     parser.add_argument("--template_file", type=str, default="../datasets/VOCA_training/templates.pkl",
                         help='faces to animate')
-    parser.add_argument("--model_path", type=str, default='../Data/VOCA/res/Results_Actor/Models/d2d_ScanTalk_new_training_strat_disp190.pth.tar')
+    parser.add_argument("--model_path", type=str, default='../Data/VOCA/res/Results_Actor/Models/d2d_ScanTalk_new_training_strat_disp130.pth.tar')
 
     ##Spiral++ hyperparameters
     parser.add_argument('--out_channels',
