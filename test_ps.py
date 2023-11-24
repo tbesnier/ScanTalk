@@ -59,27 +59,28 @@ def callback():
     if changed:
         ps.remove_all_structures()
         register_surface(name=f'Frame {ui_int}', mesh=meshes[ui_int], disp_vectors=disp_vectors[ui_int])
-        register_surface(name=f'Frame GT {ui_int}', x=0.25, y=-0.02, z=-0.05, idx_color=1, mesh=meshes_gt[ui_int],
+        if meshes_gt is not None:
+            register_surface(name=f'Frame GT {ui_int}', x=0.25, y=-0.02, z=-0.05, idx_color=1, mesh=meshes_gt[ui_int],
                          disp_vectors = disp_vectors_gt[ui_int], disp_heatmap=error_heatmap[ui_int])
 
 
-    if(psim.Button("Play")):
-        print("Hello")
-        for frame in range(len(meshes)-2):
-            ui_int = frame
-            ps.remove_all_structures()
-            register_surface(name=f'Frame {ui_int}', mesh=meshes[ui_int], disp_vectors=disp_vectors[ui_int])
-            register_surface(name=f'Frame GT {ui_int}', x=0.25, y=-0.02, z=-0.05, idx_color=1, mesh=meshes_gt[ui_int],
-                             disp_vectors=disp_vectors_gt[ui_int], disp_heatmap=error_heatmap[ui_int])
+    #if(psim.Button("Play")):
+        #for frame in range(len(meshes)-2):
+        #    ui_int = frame
+        #    ps.remove_all_structures()
+        #    register_surface(name=f'Frame {ui_int}', mesh=meshes[ui_int], disp_vectors=disp_vectors[ui_int])
+        #    register_surface(name=f'Frame GT {ui_int}', x=0.25, y=-0.02, z=-0.05, idx_color=1, mesh=meshes_gt[ui_int],
+        #                     disp_vectors=disp_vectors_gt[ui_int], disp_heatmap=error_heatmap[ui_int])
 
 if __name__ == '__main__':
     GT = True
 
-    meshes_dir = '../Data/VOCA/res/Results_Actor/Meshes_Training/150'
+    meshes_dir = '../Data/VOCA/res/Results_Actor/Meshes_Training/20'
     l_mesh_dir = len(os.listdir(meshes_dir))
     meshes = [tri.load(os.path.join(meshes_dir, 'frame_' + str(i).zfill(3) + '.ply')) for i in range(0, l_mesh_dir)]
     disp_vectors = np.array([meshes[i + 1].vertices - meshes[i].vertices for i in range(len(meshes) - 1)])
 
+    meshes_gt=None
     if GT:
         meshes_gt_dir = '../datasets/VOCA/FaceTalk_170725_00137_TA/sentence01'
         l_mesh_gt_dir = len(os.listdir(meshes_gt_dir))
@@ -93,7 +94,6 @@ if __name__ == '__main__':
     ps.set_ground_plane_mode("shadow_only")
     ps.set_ground_plane_height_factor(0)
     register_surface(name=f'Frame {0}', mesh=meshes[ui_int], disp_vectors=disp_vectors[0])
-    print(error_heatmap[0].shape)
     if GT:
         register_surface(name=f'Frame GT {0}', x=0.25, y=-0.02, z=-0.05, idx_color=1, mesh=meshes_gt[ui_int],
                          disp_vectors = disp_vectors_gt[0], disp_heatmap=error_heatmap[0])
