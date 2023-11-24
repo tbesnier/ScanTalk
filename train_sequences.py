@@ -138,7 +138,7 @@ def train(args):
     if args.load_model == True:
         checkpoint = torch.load(args.model_path, map_location=device)
         d2d.load_state_dict(checkpoint['autoencoder_state_dict'])
-        starting_epoch = checkpoint['epoch']
+        starting_epoch = checkpoint['epoch'] + 1
         print(starting_epoch)
         
     lip_mask = scipy.io.loadmat('/home/federico/Scrivania/ST/ScanTalk/FLAME_lips_idx.mat')
@@ -223,29 +223,29 @@ def train(args):
                     mesh = trimesh.Trimesh(gen_seq[m], template_tri)
                     mesh.export('/home/federico/Scrivania/ST/Data/saves/Meshes_Training_Masked_Velocity_Loss_Bigger_LSTM/' + str(epoch) + '/frame_' + str(m).zfill(3) + '.ply')
          
-        torch.save({'epoch': epoch,
+            #with torch.no_grad():
+            #    d2d.eval()
+                error_lve = 0
+                count = 0
+                pbar_talk = tqdm(enumerate(dataset["test"]), total=len(dataset["test"]))
+                for b, sample in pbar_talk:
+                    audio = sample[0].to(device)
+                    vertices = sample[1].to(device).squeeze(0)
+                    template = sample[2].to(device)
+                    vertices_pred = d2d.forward(audio, template, vertices)
+                    for k in range(vertices_pred.shape[0]):
+                        error_lve += ((vertices_pred[k] - vertices[k]) ** 2)[lip_mask].max()
+                        count += 1
+                    pbar_talk.set_description(" LVE:{:.8f}".format((error_lve)/(count)))
+
+                torch.save({'epoch': epoch,
                     'autoencoder_state_dict': d2d.state_dict(),
                     'optimizer_state_dict': optim.state_dict(),
                     }, os.path.join(args.result_dir, 'd2d_ScanTalk_bigger_lstm_masked_velocity_loss.pth.tar'))
                     
-    with torch.no_grad():
-        d2d.eval()
-        error_lve = 0
-        count = 0
-        pbar_talk = tqdm(enumerate(dataset["test"]), total=len( dataset["test"]))
-        for b, sample in pbar_talk:
-            audio = sample[0].to(device)
-            vertices = sample[1].to(device).squeeze(0)
-            template = sample[2].to(device)
-            vertices_pred = d2d.forward(audio, template, vertices)
-            for k in range(vertices_pred.shape[0]):
-                error_lve += ((vertices_pred[k] - vertices[k]) ** 2)[lip_mask].max()
-                count += 1
-            pbar_talk.set_description(" LVE:{:.8f}".format((error_lve)/(b+1) * count))
 
                
-            
-
+        
 def main():
     parser = argparse.ArgumentParser(description='D2D: Dense to Dense Encoder-Decoder')
     parser.add_argument("--lr", type=float, default=0.00005, help='learning rate')
@@ -259,7 +259,7 @@ def main():
     parser.add_argument("--template_file", type=str, default="/home/federico/Scrivania/TH/S2L/vocaset/templates.pkl", help='faces to animate')
     parser.add_argument("--training_sample_face", type=str, default="FaceTalk_170725_00137_TA", help='face to animate')
     parser.add_argument("--load_model", type=bool, default=False)
-    parser.add_argument("--model_path", type=str, default='../Data/VOCA/res/Results_Actor/Models/d2d_ScanTalk_new_training_strat_disp.pth.tar')
+    parser.add_argument("--model_path", type=str, default='/home/federico/Scrivania/ST/Data/results/d2d_ScanTalk_bigger_lstm_masked_velocity_loss.pth.tar')
     parser.add_argument("--mask_path", type=str, default='/home/federico/Scrivania/ST/ScanTalk/mouth_region_registered_idx.npy')
     parser.add_argument("--train_subjects", type=str, default="FaceTalk_170728_03272_TA"
                                                               " FaceTalk_170904_00128_TA FaceTalk_170725_00137_TA FaceTalk_170915_00223_TA"
@@ -277,7 +277,7 @@ def main():
                         nargs='+',
                         default=[32, 64, 64, 128],#divided by 2
                         type=int)
-    parser.add_argument('--latent_channels', type=int, default=64)
+    parser.add_argument('--latent_channels', type=int, default=128)
     parser.add_argument('--in_channels', type=int, default=3)
     parser.add_argument('--seq_length', type=int, default=[12, 12, 12, 12], nargs='+')
     parser.add_argument('--dilation', type=int, default=[1, 1, 1, 1], nargs='+')
