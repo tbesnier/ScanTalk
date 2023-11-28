@@ -91,8 +91,7 @@ class PointNet2(nn.Module):
 
 
 class Encoder(nn.Module):
-    def __init__(self, latent=512, filters_fc=[32, 128, 256], desc=512, filters_conv=[512, 256, 128],
-                 normal_channel=False):
+    def __init__(self, normal_channel=False):
         nn.Module.__init__(self)
         self.ptnet2 = PointNet2(normal_channel)
 
@@ -189,11 +188,11 @@ class Decoder_spirals(nn.Module):
 
 
 class PointNet2AutoEncoder(nn.Module):
-    def __init__(self, latent_size=512, filter_enc=[[32, 128, 256], 512, [512, 256, 128]], filter_dec=[1024, 2048],
+    def __init__(self, latent_size=512, filter_dec=[1024, 2048],
                  num_points=5023, device="cuda:0", normal_channel=False):
         nn.Module.__init__(self)
         self.device = device
-        self.encoder = Encoder(latent_size, filter_enc[0], filter_enc[1], filter_enc[2], normal_channel)
+        self.encoder = Encoder(latent_size, normal_channel)
         self.decoder = Decoder(latent_size, filter_dec, num_points)
 
     def forward(self, x):
@@ -216,13 +215,13 @@ class PointNet2AutoEncoder(nn.Module):
 
 
 class PointNet2SpiralsAutoEncoder(nn.Module):
-    def __init__(self, latent_size, filter_enc, filter_dec, num_points, sizes,
+    def __init__(self, latent_size, filter_dec, num_points, sizes,
                  spiral_sizes,
                  spirals,
-                 U, device="cuda:0"):
+                 U, normal_channel, device="cuda:0"):
         nn.Module.__init__(self)
         self.device = device
-        self.encoder = Encoder(latent_size, filter_enc[0], filter_enc[1], filter_enc[2])
+        self.encoder = Encoder(latent_size, normal_channel=normal_channel)
         self.decoder = Decoder_spirals(filter_dec, latent_size, sizes, spiral_sizes, spirals, U, device=device)
 
     def forward(self, x):

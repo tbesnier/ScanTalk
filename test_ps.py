@@ -3,6 +3,10 @@ import polyscope.imgui as psim
 import trimesh as tri
 import numpy as np
 import os, time
+from vedo import *
+from vedo import dataurl, Plotter, Mesh, Video
+import vedo
+vedo.settings.default_backend= 'vtk'
 
 ui_int = 0
 colors = [
@@ -61,19 +65,12 @@ def callback():
         register_surface(name=f'Frame {ui_int}', mesh=meshes[ui_int], disp_vectors=disp_vectors[ui_int])
         if meshes_gt is not None:
             register_surface(name=f'Frame GT {ui_int}', x=0.25, y=-0.02, z=-0.05, idx_color=1, mesh=meshes_gt[ui_int],
-                         disp_vectors = disp_vectors_gt[ui_int], disp_heatmap=error_heatmap[ui_int])
+                         disp_vectors = disp_vectors_gt[ui_int], disp_heatmap=None)  #error_heatmap[ui_int])
 
-
-    #if(psim.Button("Play")):
-        #for frame in range(len(meshes)-2):
-        #    ui_int = frame
-        #    ps.remove_all_structures()
-        #    register_surface(name=f'Frame {ui_int}', mesh=meshes[ui_int], disp_vectors=disp_vectors[ui_int])
-        #    register_surface(name=f'Frame GT {ui_int}', x=0.25, y=-0.02, z=-0.05, idx_color=1, mesh=meshes_gt[ui_int],
-        #                     disp_vectors=disp_vectors_gt[ui_int], disp_heatmap=error_heatmap[ui_int])
 
 if __name__ == '__main__':
     GT = True
+    render_vid = False
 
     meshes_dir = '../Data/VOCA/res/Results_Actor/Meshes_Training/20'
     l_mesh_dir = len(os.listdir(meshes_dir))
@@ -86,7 +83,6 @@ if __name__ == '__main__':
         l_mesh_gt_dir = len(os.listdir(meshes_gt_dir))
         meshes_gt = [tri.load(os.path.join(meshes_gt_dir, 'sentence01.' + str(i).zfill(6) +'.ply')) for i in range(1, l_mesh_gt_dir)]
         disp_vectors_gt = np.array([meshes_gt[i+1].vertices - meshes_gt[i].vertices for i in range(len(meshes_gt) - 1)])
-        print(disp_vectors_gt.max())
         error_heatmap = np.array([np.linalg.norm(meshes_gt[i+1].vertices - meshes[i].vertices, axis=1) for i in range(len(meshes_gt) - 1)])
 
     ps.init()
@@ -96,6 +92,29 @@ if __name__ == '__main__':
     register_surface(name=f'Frame {0}', mesh=meshes[ui_int], disp_vectors=disp_vectors[0])
     if GT:
         register_surface(name=f'Frame GT {0}', x=0.25, y=-0.02, z=-0.05, idx_color=1, mesh=meshes_gt[ui_int],
-                         disp_vectors = disp_vectors_gt[0], disp_heatmap=error_heatmap[0])
+                         disp_vectors = disp_vectors_gt[0], disp_heatmap=None) #error_heatmap[0])
     ps.set_user_callback(callback)
     ps.show()
+
+    if render_vid:
+        folder = "../"
+        l = 1
+        axes = Axes(xrange=(-l, l), yrange=(-l, l), zrange=(-l, l),
+                    xygrid=False, yzgrid=False, zxgrid=False,
+                    xygrid_transparent=True, yzgrid_transparent=True, zxgrid_transparent=True)
+        # declare the class instance
+        # target_face = Mesh(os.path.join(folder, L[0]))
+        plt = Plotter(bg='white', axes=0, offscreen=False, interactive=0)
+        plt.show(axes)
+        video = Video(folder + "anim.mp4", duration=4, backend='ffmpeg')  # backend='opencv'
+
+        for i, elt in enumerate(meshes_dir):
+            face = Mesh(os.path.join(folder + "interp/", elt), c='Purple7')
+            plt.add(face)
+            plt.render()
+            video.add_frame()
+            plt.remove(face)
+
+        video.close()  # merge all the recorded frames
+
+        plt.interactive().close()
