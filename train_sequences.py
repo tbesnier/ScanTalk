@@ -125,7 +125,7 @@ def train(args):
 
     dataset = get_dataloaders(args)
 
-    d2d = #PointNet2SpiralsAutoEncoder(args.in_channels, args.out_channels, args.latent_channels,
+    #d2d = PointNet2SpiralsAutoEncoder(args.in_channels, args.out_channels, args.latent_channels,
           #                  spiral_indices_list, down_transform_list,
            #                 up_transform_list).to(device)
 

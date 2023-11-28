@@ -1,5 +1,7 @@
 import os
-import spiral_utils
+
+import lddmm_utils
+#import spiral_utils
 import shape_data
 import new_data_loader as new_data_loader
 import pickle
@@ -11,7 +13,7 @@ from torch.utils.data import DataLoader
 import argparse
 from tqdm import tqdm
 #from d2d import SpiralAutoencoder
-from d2d_plus import SpiralAutoencoder
+#from d2d_plus import SpiralAutoencoder
 #from transformers import AutoProcessor
 import librosa
 #from wavlm import WavLMModel
@@ -28,6 +30,9 @@ from pytorch3d.loss import (
 from pytorch3d.structures import Meshes
 
 from model.model_semi_registered import PointNet2SpiralsAutoEncoder
+import lddmm_utils
+
+faces = torch.tensor(np.array(trimesh.load('./template/flame_model/FLAME_sample.ply').faces)).to(dtype=torch.int32)
 
 class Masked_Loss(nn.Module):
     def __init__(self, args):
@@ -91,6 +96,33 @@ class Unsupervised_Loss(nn.Module):
         loss_chamfer, _ = chamfer_distance(predictions, targets)
 
         return loss_chamfer
+
+
+class Varifold_loss(nn.Module):
+    def __init__(self, args):
+        super(Varifold_loss, self).__init__()
+        self.device = args.device
+        self.faces = faces.to(self.device)
+        self.torchdtype = torch.float
+        self.sig = [0.08, 0.04, 0.02]
+        self.sig_n = torch.tensor([0.5], dtype=self.torchdtype, device=self.device)
+        for i, sigma in enumerate(self.sig):
+            self.sig[i] = torch.tensor([sigma], dtype=self.torchdtype, device=self.device)
+    def forward(self, predictions, targets):
+        L = []
+        for i in range(predictions.shape[0]):
+            Li = torch.Tensor([0.]).to(self.device)
+            V1, F1 = predictions[i], self.faces
+            V2, F2 = targets[i], self.faces
+
+            for sigma in self.sig:
+                Li += (sigma / self.sig[0]) ** 2 * lddmm_utils.lossVarifoldSurf(F1, V2, F2,
+                                                                lddmm_utils.GibbsKernel_varifold_oriented(
+                                                                sigma=sigma,
+                                                                sigma_n=self.sig_n))(V1)
+            L.append(Li)
+
+        return torch.stack(L).mean()
 
 def train(args):
 
@@ -161,13 +193,13 @@ def train(args):
                                                args.dataset_dir_frame,
                                                args.dataset_dir_actor,
                                                5,
-                                               11000)
+                                               1100)
     
     dataset_test = new_data_loader.TH_seq_Dataset(args.dataset_dir_audios,
                                               args.dataset_dir_frame,
                                               args.dataset_dir_actor,
-                                              10000,
-                                              12140)
+                                              1000,
+                                              1214)
 
 
     dataloader_train = DataLoader(dataset_train, batch_size=32,
@@ -181,8 +213,11 @@ def train(args):
     #       spiral_indices_list, down_transform_list,
     #       up_transform_list).to(device)
 
-    d2d = PointNet2SpiralsAutoEncoder(args.latent_channels, args.in_channels, args.out_channels,
-           spiral_indices_list, down_transform_list, up_transform_list).to(device)
+    d2d = PointNet2SpiralsAutoEncoder(latent_channels=args.latent_channels, in_channels=args.in_channels,
+                                      out_channels=args.out_channels,
+                                      spiral_indices=spiral_indices_list,
+                                      down_transform=down_transform_list, up_transform=up_transform_list,
+                                      normal_channel=False).to(device)
 
     starting_epoch = 0
     if args.load_model == True:
@@ -191,7 +226,8 @@ def train(args):
         starting_epoch = checkpoint['epoch']
         print(starting_epoch)
     
-    criterion = Masked_Loss(args)  ##Unsupervised_Loss(args) #Masked_Loss(args)  # nn.MSELoss()
+    criterion = Varifold_loss(args)  ##Unsupervised_Loss(args) #Masked_Loss(args)  # nn.MSELoss()
+    mse = nn.MSELoss()
 
     optim = torch.optim.Adam(d2d.parameters(), lr=args.lr)
 
@@ -207,7 +243,7 @@ def train(args):
             actor = sample['actor'].to(device)
             frame_pred = d2d.forward(audio, actor)
             #next_frame_pred = d2d.forward(next_audio, actor)
-            loss = criterion.forward_weighted(frame, frame_pred) + criterion.forward_weighted(frame_pred - actor, frame - actor)
+            loss = criterion(frame, frame_pred)# + criterion(frame_pred - actor, frame - actor)
             torch.nn.utils.clip_grad_norm_(d2d.parameters(), 10.0)
             loss.backward()
             optim.step()
@@ -227,7 +263,7 @@ def train(args):
                     # next_frame = sample['next_frame'].to(device)
                     actor = sample['actor'].to(device)
                     frame_pred = d2d.forward(audio, actor)
-                    loss = criterion(frame, frame_pred)
+                    loss = mse(frame, frame_pred)
                     t_test_loss += loss
                     pbar_talk.set_description(
                                     "(Epoch {}) TEST LOSS:{:.10f}".format((epoch + 1), (t_test_loss)/(b+1)))
@@ -305,12 +341,14 @@ def main():
     ##Spiral++ hyperparameters
     parser.add_argument('--out_channels',
                         nargs='+',
-                        default=[64, 128, 128, 256],
+                        default=[32, 64, 64, 128],
                         type=int)
     parser.add_argument('--latent_channels', type=int, default=64)
     parser.add_argument('--in_channels', type=int, default=3)
-    parser.add_argument('--seq_length', type=int, default=[12, 12, 12, 12], nargs='+')
+    parser.add_argument('--seq_length', type=int, default=[9, 9, 9, 9], nargs='+')
     parser.add_argument('--dilation', type=int, default=[1, 1, 1, 1], nargs='+')
+
+    #parser.add_argument('--faces', type=int, default=np.array(trimesh.load('./template/flame_model/FLAME_sample.ply')))
 
     args = parser.parse_args()
 

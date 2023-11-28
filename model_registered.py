@@ -7,7 +7,6 @@ from wav2vec import Wav2Vec2Model
 
 import pdb
 
-
 def MLP(channels, bias=False, nonlin=LeakyReLU(negative_slope=0.2)):
     return Seq(*[
         Seq(Lin(channels[i - 1], channels[i], bias=bias), BatchNorm1d(channels[i]), nonlin)
