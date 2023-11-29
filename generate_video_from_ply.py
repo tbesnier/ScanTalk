@@ -1,4 +1,4 @@
-import d2d
+import ScanTalk.model.spiral_net_lstm as spiral_net_lstm
 import spiral_utils as spiral_utils
 import shape_data as shape_data
 import argparse

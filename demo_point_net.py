@@ -3,7 +3,8 @@ import pickle
 import shape_data
 from sklearn.metrics.pairwise import euclidean_distances
 import torch
-from ScanTalk.model.spiral_net_lstm import SpiralAutoencoder
+#from d2d import SpiralAutoencoder
+from model.model_semi_registered import PointNet2SpiralsAutoEncoder
 from transformers import Wav2Vec2Processor
 import time
 import os
@@ -224,9 +225,12 @@ def generate_meshes(args):
         for up_transform in tmp['up_transform']
     ]
     
-    d2d = SpiralAutoencoder(args.in_channels, args.out_channels, args.latent_channels,
-           spiral_indices_list, down_transform_list,
-           up_transform_list).to(device)
+    #d2d = SpiralAutoencoder(args.in_channels, args.out_channels, args.latent_channels,
+    #       spiral_indices_list, down_transform_list,
+    #       up_transform_list).to(device)
+    
+    d2d = PointNet2SpiralsAutoEncoder(args.latent_channels, args.in_channels, args.out_channels,
+                                spiral_indices_list, down_transform_list, up_transform_list).to(device)
 
     checkpoint = torch.load(args.model_path, map_location=device)
     d2d.load_state_dict(checkpoint['autoencoder_state_dict'])
@@ -274,11 +278,11 @@ def main():
     parser = argparse.ArgumentParser(description='D2D: Dense to Dense Encoder-Decoder')
     parser.add_argument("--reference_mesh_file", type=str, default='/home/federico/Scrivania/ST/ScanTalk/template/flame_model/FLAME_sample.ply', help='path of the template')
     parser.add_argument("--device", type=str, default="cuda")
-    parser.add_argument("--save_path", type=str, default='/home/federico/Scrivania/ST/Data/Demo_audio_20s')
+    parser.add_argument("--save_path", type=str, default='/home/federico/Scrivania/ST/Data/Demo_audio_20s_Point_Net_Unseen_Actor')
     parser.add_argument("--audio", type=str, default='/home/federico/Scrivania/ST/Data/Test_Audio/audio_20s.wav')
     parser.add_argument("--template_file", type=str, default="/home/federico/Scrivania/TH/S2L/vocaset/templates.pkl", help='faces to animate')
-    parser.add_argument("--actor_name", type=str, default="FaceTalk_170809_00138_TA", help='face to animate')
-    parser.add_argument("--model_path", type=str, default='/home/federico/Scrivania/ST/Data/results/d2d_ScanTalk_bigger_lstm_masked_velocity_loss.pth.tar')
+    parser.add_argument("--actor_name", type=str, default="FaceTalk_170731_00024_TA", help='face to animate')
+    parser.add_argument("--model_path", type=str, default='/home/federico/Scrivania/ST/Data/results/d2d_ScanTalk_bigger_lstm_masked_velocity_loss_pointnet.pth.tar')
     parser.add_argument("--video_name", type=str, default='audio_20s.mp4')     
     parser.add_argument("--fps", type=int, default=30, help='frames per second')
 

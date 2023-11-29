@@ -68,7 +68,7 @@ def read_data(args):
                 if not os.path.exists(vertices_path_):
                     del data[key]
                 else:
-                    vertices = np.load(vertices_path_, allow_pickle=True)#[::2, :]
+                    vertices = np.load(vertices_path_, allow_pickle=True)[::2, :]
                     data[key]["vertices"] = np.reshape(vertices, (vertices.shape[0], 5023, 3))
                 #hidden_states = audio_encoder(audio_feature, frame_num=len(vertices)).last_hidden_state
                 #data[key]["audio"] = hidden_states.squeeze(0)

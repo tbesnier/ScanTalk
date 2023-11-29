@@ -134,7 +134,7 @@ class PointNet2MSG(nn.Module):
 
 
 class PointNet2(nn.Module):
-    def __init__(self, latent_channels, normal_channel=False):
+    def __init__(self, latent_channels, normal_channel=True):
         super(PointNet2, self).__init__()
         in_channel = 6 if normal_channel else 3
         self.normal_channel = normal_channel
@@ -145,10 +145,10 @@ class PointNet2(nn.Module):
         self.sa3 = PointNetSetAbstraction(npoint=None, radius=None, nsample=None, in_channel=256 + 3,
                                           mlp=[256, 512, 1024], group_all=True)
         self.fc1 = nn.Linear(1024, 512)
-        self.bn1 = nn.BatchNorm1d(512)
+        #self.bn1 = nn.BatchNorm1d(512)
         self.drop1 = nn.Dropout(0.4)
         self.fc2 = nn.Linear(512, 256)
-        self.bn2 = nn.BatchNorm1d(256)
+        #self.bn2 = nn.BatchNorm1d(256)InstanceNorm
         self.drop2 = nn.Dropout(0.4)
         self.fc3 = nn.Linear(256, latent_channels)
 
@@ -164,8 +164,10 @@ class PointNet2(nn.Module):
         l2_xyz, l2_points = self.sa2(l1_xyz, l1_points)
         l3_xyz, l3_points = self.sa3(l2_xyz, l2_points)
         x = l3_points.view(B, 1024)
-        x = self.drop1(F.relu(self.bn1(self.fc1(x))))
-        x = self.drop2(F.relu(self.bn2(self.fc2(x))))
+        #x = self.drop1(F.relu(self.bn1(self.fc1(x))))
+        #x = self.drop2(F.relu(self.bn2(self.fc2(x))))
+        x = self.drop1(F.relu(self.fc1(x)))
+        x = self.drop2(F.relu(self.fc2(x)))
         x = self.fc3(x)
 
         return x
@@ -193,7 +195,7 @@ class SpiralNet2Decoder(nn.Module):
         # decoder
         self.de_layers = nn.ModuleList()
         self.de_layers.append(
-            nn.Linear(latent_channels + 6 * 16, self.num_vert * out_channels[-1]))
+            nn.Linear(latent_channels * 2, self.num_vert * out_channels[-1]))
         for idx in range(len(out_channels)):
             if idx == 0:
                 self.de_layers.append(
@@ -257,7 +259,7 @@ class PointNet2SpiralsAutoEncoder(nn.Module):
         self.audio_encoder.feature_extractor._freeze_parameters()
         self.audio_embedding = nn.Linear(768, self.latent_channels)
         self.lstm = nn.LSTM(input_size=self.latent_channels * 2, hidden_size=int(self.latent_channels / 2),
-                            num_layers=5, batch_first=True, bidirectional=True)
+                            num_layers=3, batch_first=True, bidirectional=True)
     def get_latent(self, x):
         z = self.encode(x)
         return z
