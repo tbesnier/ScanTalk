@@ -195,7 +195,7 @@ class SpiralNet2Decoder(nn.Module):
         # decoder
         self.de_layers = nn.ModuleList()
         self.de_layers.append(
-            nn.Linear(latent_channels * 2, self.num_vert * out_channels[-1]))
+            nn.Linear(latent_channels, self.num_vert * out_channels[-1]))
         for idx in range(len(out_channels)):
             if idx == 0:
                 self.de_layers.append(
@@ -209,11 +209,6 @@ class SpiralNet2Decoder(nn.Module):
         self.de_layers.append(
             SpiralConv(out_channels[0], in_channels, self.spiral_indices[0], init=True))
 
-        # self.audio_embedding = nn.LSTM(input_size=768, hidden_size=1024, num_layers=3, batch_first=True , bidirectional=True)
-        # self.audio_embedding = nn.LSTM(input_size=768, hidden_size=self.latent_channels, num_layers=5, batch_first=True, bidirectional=True)
-        # self.fc = Lin(1024, self.latent_channels, bias=False)
-
-        #self.reset_parameters()
 
     def reset_parameters(self):
         for name, param in self.named_parameters():
@@ -264,43 +259,13 @@ class PointNet2SpiralsAutoEncoder(nn.Module):
         z = self.encode(x)
         return z
 
-    # def predict_cat_audio(self, audio, actor, n=3):
-    #
-    #     pred_sequence = actor
-    #     for i in range(audio.shape[1]):
-    #         z = self.encode(actor)
-    #         if i<n:
-    #             audio_data = [audio[:, 0, :] for j in range(n - i)] + [audio[:,j,:] for j in range(0, i+n)]
-    #         elif i>=n and i+n<audio.shape[1]:
-    #             audio_data = [audio[:, k, :] for k in range(i - n, i + n)]
-    #         else:
-    #             audio_data = [audio[:, k, :] for k in range(i - n, audio.shape[1])] + (i + n - audio.shape[1])*[audio[:,-1,:]]
-    #         audio_emb = self.audio_embedding(audio_data[0])
-    #         for l in range(1,6):
-    #             audio_emb = torch.cat([audio_emb, self.audio_embedding(audio_data[l])], dim=1)
-    #         z = torch.cat([z, audio_emb], dim=1)
-    #         x = self.decode(z) + actor
-    #         pred_sequence = torch.vstack([pred_sequence, x])
-    #
-    #     return pred_sequence[1:, :, :]
-
-    # def forward(self, audio, actor):
-    #     z = self.encode(actor)
-    #     #audio_emb, _ = self.audio_embedding(audio.unsqueeze(0))
-    #     for i in range(audio.shape[1]):
-    #         audio_emb = self.audio_embedding(audio[:,i,:])
-    #         z = torch.cat([z, audio_emb], dim=1)
-    #     #z = audio_emb[0]
-    #     pred = self.decode(z)
-    #     return pred + actor
-
     def forward(self, audio, actor, vertices):
         hidden_states = self.audio_encoder(audio, frame_num=len(vertices)).last_hidden_state
         pred_sequence = actor
         audio_emb = self.audio_embedding(hidden_states)
         actor_emb = self.encode(actor)
         actor_emb = actor_emb.expand(audio_emb.shape)
-        latent = torch.cat([audio_emb, actor_emb], dim=2)
+        latent, _ = self.lstm(torch.cat([audio_emb, actor_emb], dim=2))
         for k in range(latent.shape[1]):
             pred = self.decode(latent[:, k, :]) + actor
             pred_sequence = torch.vstack([pred_sequence, pred])
@@ -312,7 +277,7 @@ class PointNet2SpiralsAutoEncoder(nn.Module):
         audio_emb = self.audio_embedding(hidden_states)
         actor_emb = self.encode(actor)
         actor_emb = actor_emb.expand(audio_emb.shape)
-        latent = torch.cat([audio_emb, actor_emb], dim=2)
+        latent, _ = self.lstm(torch.cat([audio_emb, actor_emb], dim=2))
         for k in range(latent.shape[1]):
             pred = self.decode(latent[:, k, :]) + actor
             pred_sequence = torch.vstack([pred_sequence, pred])
