@@ -189,8 +189,8 @@ class SpiralAutoencoder(nn.Module):
         audio_emb = self.audio_embedding(hidden_states)
         actor_emb = self.encode(actor)
         actor_emb = actor_emb.expand(audio_emb.shape)
-        #latent, _ = self.lstm(torch.cat([audio_emb, actor_emb], dim=2))
-        latent = torch.cat([audio_emb, actor_emb], dim=2)
+        latent, _ = self.lstm(torch.cat([audio_emb, actor_emb], dim=2))
+        #latent = torch.cat([audio_emb, actor_emb], dim=2)
         for k in range(latent.shape[1]):
             pred = self.decode(latent[:, k, :]) + actor
             pred_sequence = torch.vstack([pred_sequence, pred])
@@ -202,8 +202,8 @@ class SpiralAutoencoder(nn.Module):
         audio_emb = self.audio_embedding(hidden_states)
         actor_emb = self.encode(actor)
         actor_emb = actor_emb.expand(audio_emb.shape)
-        #latent, _ = self.lstm(torch.cat([audio_emb, actor_emb], dim=2))
-        latent = torch.cat([audio_emb, actor_emb], dim=2)
+        latent, _ = self.lstm(torch.cat([audio_emb, actor_emb], dim=2))
+        #latent = torch.cat([audio_emb, actor_emb], dim=2)
         for k in range(latent.shape[1]):
             pred = self.decode(latent[:, k, :]) + actor
             pred_sequence = torch.vstack([pred_sequence, pred])

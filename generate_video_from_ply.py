@@ -1,4 +1,4 @@
-import ScanTalk.model.spiral_net_lstm as spiral_net_lstm
+import model.spiral_net_lstm as spiral_net_lstm
 import spiral_utils as spiral_utils
 import shape_data as shape_data
 import argparse
@@ -158,10 +158,10 @@ def main():
     #Path where you want to save the video
     parser.add_argument("--save_path", type=str, default='/home/federico/Scrivania/ST/Data/Videos', help='path for video')
     #Path where the .ply of the meshes sequence is. It is important that the meshes are named in order, e.g tst000.ply, tst001.ply, tst002.ply ...
-    parser.add_argument("--meshes_path", type=str, default="/home/federico/Scrivania/ST/Data/saves/Meshes_Masked_Velocity_Loss_Bigger_LSTM/290", help='path for the meshes sequence')
+    parser.add_argument("--meshes_path", type=str, default="/home/federico/Scrivania/ST/Data/saves/Meshes_Masked_Velocity_Loss_3_Layers/30", help='path for the meshes sequence')
     #Path of the mesh template, for the FLAME topology, I put it in your folder, like this code
     parser.add_argument("--flame_template", type=str, default="/home/federico/Scrivania/D2D/template/flame_model/FLAME_sample.ply", help='template_path')
-    parser.add_argument("--video_name", type=str, default='test_masked_velocity_loss_bigger_lstm_290_epochs.mp4', help='name of the video')
+    parser.add_argument("--video_name", type=str, default='test_masked_velocity_loss_bigger_lstm_3_layers.mp4', help='name of the video')
     parser.add_argument("--audio_path", type=str, default='/home/federico/Scrivania/TH/photo.wav', help='audio')
     parser.add_argument("--fps", type=int, default=30, help='frames per second')
 
