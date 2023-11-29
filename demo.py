@@ -278,7 +278,7 @@ def main():
     parser.add_argument("--audio", type=str, default='/home/federico/Scrivania/TH/photo.wav')
     parser.add_argument("--template_file", type=str, default="/home/federico/Scrivania/TH/S2L/vocaset/templates.pkl", help='faces to animate')
     parser.add_argument("--actor_name", type=str, default="FaceTalk_170809_00138_TA", help='face to animate')
-    parser.add_argument("--model_path", type=str, default='/home/federico/Scrivania/ST/Data/results/d2d_ScanTalk_bigger_lstm_masked_velocity_loss.pth.tar')
+    parser.add_argument("--model_path", type=str, default='/home/federico/Scrivania/ST/Data/results/d2d_ScanTalk_bigger_lstm_masked_velocity_loss_3_layers.pth.tar')#Copy it from ultron
     parser.add_argument("--video_name", type=str, default='photo.mp4')     
     parser.add_argument("--fps", type=int, default=30, help='frames per second')
 
@@ -287,7 +287,7 @@ def main():
                         nargs='+',
                         default=[32, 64, 64, 128],
                         type=int)
-    parser.add_argument('--latent_channels', type=int, default=128)
+    parser.add_argument('--latent_channels', type=int, default=64)
     parser.add_argument('--in_channels', type=int, default=3)
     parser.add_argument('--seq_length', type=int, default=[12, 12, 12, 12], nargs='+')
     parser.add_argument('--dilation', type=int, default=[1, 1, 1, 1], nargs='+')
