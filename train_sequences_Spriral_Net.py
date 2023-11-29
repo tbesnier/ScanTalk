@@ -198,10 +198,10 @@ def train(args):
                 
                 gen_seq = gen_seq.cpu().detach().numpy()
                 
-                os.makedirs('/home/federico/Scrivania/ST/Data/saves/Meshes_Masked_Velocity_Loss_Bigger_LSTM_Point_Net_Normals/' + str(epoch), exist_ok=True)
+                os.makedirs('/home/federico/Scrivania/ST/Data/saves/Meshes_Masked_Velocity_Loss_Bigger_LSTM_NO_Encoder/' + str(epoch), exist_ok=True)
                 for m in range(len(gen_seq)):
                     mesh = trimesh.Trimesh(gen_seq[m], template_tri)
-                    mesh.export('/home/federico/Scrivania/ST/Data/saves/Meshes_Masked_Velocity_Loss_Bigger_LSTM_Point_Net_Normals/' + str(epoch) + '/frame_' + str(m).zfill(3) + '.ply')
+                    mesh.export('/home/federico/Scrivania/ST/Data/saves/Meshes_Masked_Velocity_Loss_Bigger_LSTM_NO_Encoder/' + str(epoch) + '/frame_' + str(m).zfill(3) + '.ply')
                 
                 #Sample from training set
                 speech_array, sampling_rate = librosa.load(args.training_sample_audio, sr=16000)
@@ -219,10 +219,10 @@ def train(args):
                 
                 gen_seq = gen_seq.cpu().detach().numpy()
                 
-                os.makedirs('/home/federico/Scrivania/ST/Data/saves/Meshes_Training_Masked_Velocity_Loss_Bigger_LSTM_Point_Net_Normals/' + str(epoch), exist_ok=True)
+                os.makedirs('/home/federico/Scrivania/ST/Data/saves/Meshes_Training_Masked_Velocity_Loss_Bigger_NO_Encoder/' + str(epoch), exist_ok=True)
                 for m in range(len(gen_seq)):
                     mesh = trimesh.Trimesh(gen_seq[m], template_tri)
-                    mesh.export('/home/federico/Scrivania/ST/Data/saves/Meshes_Training_Masked_Velocity_Loss_Bigger_LSTM_Point_Net_Normals/' + str(epoch) + '/frame_' + str(m).zfill(3) + '.ply')
+                    mesh.export('/home/federico/Scrivania/ST/Data/saves/Meshes_Training_Masked_Velocity_Loss_Bigger_NO_Encoder/' + str(epoch) + '/frame_' + str(m).zfill(3) + '.ply')
                     
                 error_lve = 0
                 count = 0
@@ -242,7 +242,7 @@ def train(args):
         torch.save({'epoch': epoch,
             'autoencoder_state_dict': d2d.state_dict(),
             'optimizer_state_dict': optim.state_dict(),
-            }, os.path.join(args.result_dir, 'd2d_ScanTalk_bigger_lstm_masked_velocity_loss_pointnet_normals.pth.tar'))
+            }, os.path.join(args.result_dir, 'd2d_ScanTalk_bigger_lstm_masked_velocity_loss_no_encoder.pth.tar'))
     
         
         
