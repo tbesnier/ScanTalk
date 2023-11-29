@@ -131,7 +131,7 @@ class SpiralAutoencoder(nn.Module):
         # decoder
         self.de_layers = nn.ModuleList()
         self.de_layers.append(
-            nn.Linear(latent_channels*2, self.num_vert * out_channels[-1]))
+            nn.Linear(latent_channels, self.num_vert * out_channels[-1]))
         for idx in range(len(out_channels)):
             if idx == 0:
                 self.de_layers.append(
