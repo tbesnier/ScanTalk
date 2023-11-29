@@ -19,28 +19,35 @@ from psbody.mesh import Mesh
 from utils import utils, mesh_sampling
 from data_loader import get_dataloaders
 import scipy
+import lddmm_utils
 
+faces = torch.tensor(np.array(trimesh.load('./template/flame_model/FLAME_sample.ply').faces)).to(dtype=torch.int32)
 
-class Masked_Loss(nn.Module):
+class Varifold_loss(nn.Module):
     def __init__(self, args):
-        super(Masked_Loss, self).__init__()
-        self.mse = nn.MSELoss(reduction='none')
-        self.weights = np.load('/home/federico/Scrivania/ST/ScanTalk/template/template/Normalized_d_weights.npy', allow_pickle=True)
-        self.weights = torch.from_numpy(self.weights[:-1]).float().to(args.device)
+        super(Varifold_loss, self).__init__()
+        self.device = args.device
+        self.faces = faces.to(self.device)
+        self.torchdtype = torch.float
+        self.sig = [0.08, 0.04, 0.02]
+        self.sig_n = torch.tensor([0.5], dtype=self.torchdtype, device=self.device)
+        for i, sigma in enumerate(self.sig):
+            self.sig[i] = torch.tensor([sigma], dtype=self.torchdtype, device=self.device)
+    def forward(self, predictions, targets):
+        L = []
+        for i in range(predictions.shape[0]):
+            Li = torch.Tensor([0.]).to(self.device)
+            V1, F1 = predictions[i], self.faces
+            V2, F2 = targets[i], self.faces
 
-    def forward(self, predictions, target):
-        
-        rec_loss = torch.mean(self.mse(predictions, target))
-        
-        landmarks_loss = (self.mse(predictions, target).mean(axis=2) * self.weights).mean()
+            for sigma in self.sig:
+                Li += (sigma / self.sig[0]) ** 2 * lddmm_utils.lossVarifoldSurf(F1, V2, F2,
+                                                                lddmm_utils.GibbsKernel_varifold_oriented(
+                                                                sigma=sigma,
+                                                                sigma_n=self.sig_n))(V1)
+            L.append(Li)
 
-        prediction_shift = predictions[:, 1:, :] - predictions[:, :-1, :]
-        target_shift = target[:, 1:, :] - target[:, :-1, :]
-
-        vel_loss = torch.mean((self.mse(prediction_shift, target_shift)))
-
-        return rec_loss + 10 * landmarks_loss + 10 * vel_loss
-
+        return torch.stack(L).mean()
 
 def train(args):
 
@@ -125,7 +132,7 @@ def train(args):
     
     lip_mask = np.reshape(np.array(lip_mask, dtype=np.int64), (lip_mask.shape[0]))
     
-    criterion = Masked_Loss(args) 
+    criterion = Varifold_loss(args) 
     criterion_val = nn.MSELoss()
 
     optim = torch.optim.Adam(d2d.parameters(), lr=args.lr)
