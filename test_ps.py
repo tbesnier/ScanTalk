@@ -72,7 +72,7 @@ if __name__ == '__main__':
     GT = True
     render_vid = False
 
-    meshes_dir = '../Data/VOCA/res/Results_Actor/Meshes_Training/20'
+    meshes_dir = '../Data/VOCA/res/Results_Actor/Meshes_Training/140'
     l_mesh_dir = len(os.listdir(meshes_dir))
     meshes = [tri.load(os.path.join(meshes_dir, 'frame_' + str(i).zfill(3) + '.ply')) for i in range(0, l_mesh_dir)]
     disp_vectors = np.array([meshes[i + 1].vertices - meshes[i].vertices for i in range(len(meshes) - 1)])
