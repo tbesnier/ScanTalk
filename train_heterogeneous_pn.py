@@ -87,15 +87,29 @@ class Metric(nn.Module):
 
         return lip_vertex_error
 
-class Unsupervised_Loss(nn.Module):
+class Chamfer_Loss(nn.Module):
     def __init__(self, args):
-        super(Unsupervised_Loss, self).__init__()
-
+        super(Chamfer_Loss, self).__init__()
+        self.device = args.device
+        self.faces = faces.to(self.device)
+        self.w_edge_loss = 1
+        self.w_laplacian_loss = 0.1
+        self.w_normal_loss = 0.01
     def forward(self, predictions, targets):
 
         loss_chamfer, _ = chamfer_distance(predictions, targets)
 
-        return loss_chamfer
+        M = Meshes(verts=predictions,
+                   faces=self.faces.repeat(predictions.shape[0], 1, 1))
+
+        if self.w_edge_loss > 0:
+            self.w_edge_loss = self.w_edge_loss * mesh_edge_loss(M)
+        if self.w_laplacian_loss > 0:
+            self.w_laplacian_loss = self.w_laplacian_loss * mesh_laplacian_smoothing(M, method="cot")  # mesh laplacian smoothing
+        if self.w_normal_loss > 0:
+            self.w_normal_loss = self.w_normal_loss * mesh_normal_consistency(M)
+
+        return loss_chamfer + self.w_laplacian_loss + self.w_normal_loss + self.w_edge_loss
 
 
 class Varifold_loss(nn.Module):
@@ -104,8 +118,8 @@ class Varifold_loss(nn.Module):
         self.device = args.device
         self.faces = faces.to(self.device)
         self.torchdtype = torch.float
-        self.sig = [0.08, 0.04, 0.02]
-        self.sig_n = torch.tensor([0.5], dtype=self.torchdtype, device=self.device)
+        self.sig = [0.08, 0.02]
+        #self.sig_n = torch.tensor([0.5], dtype=self.torchdtype, device=self.device)
         for i, sigma in enumerate(self.sig):
             self.sig[i] = torch.tensor([sigma], dtype=self.torchdtype, device=self.device)
     def forward(self, predictions, targets):
@@ -117,9 +131,10 @@ class Varifold_loss(nn.Module):
 
             for sigma in self.sig:
                 Li += (sigma / self.sig[0]) ** 2 * lddmm_utils.lossVarifoldSurf(F1, V2, F2,
-                                                                lddmm_utils.GibbsKernel_varifold_oriented(
-                                                                sigma=sigma,
-                                                                sigma_n=self.sig_n))(V1)
+                                                                lddmm_utils.GaussSquaredKernel_varifold_unoriented(
+                                                                sigma=sigma))(V1)
+
+
             L.append(Li)
 
         return torch.stack(L).mean()
@@ -193,20 +208,20 @@ def train(args):
                                                args.dataset_dir_frame,
                                                args.dataset_dir_actor,
                                                5,
-                                               1100)
+                                               110000)
     
     dataset_test = new_data_loader.TH_seq_Dataset(args.dataset_dir_audios,
                                               args.dataset_dir_frame,
                                               args.dataset_dir_actor,
-                                              1000,
-                                              1214)
+                                              100000,
+                                              121400)
 
 
     dataloader_train = DataLoader(dataset_train, batch_size=32,
-                                 shuffle=True, num_workers=4)
+                                 shuffle=True, num_workers=2)
     
     dataloader_test = DataLoader(dataset_test, batch_size=32,
-                                 shuffle=True, num_workers=4)
+                                 shuffle=True, num_workers=2)
 
 
     #d2d = SpiralAutoencoder(args.in_channels, args.out_channels, args.latent_channels,
@@ -226,7 +241,7 @@ def train(args):
         starting_epoch = checkpoint['epoch']
         print(starting_epoch)
     
-    criterion = Varifold_loss(args)  ##Unsupervised_Loss(args) #Masked_Loss(args)  # nn.MSELoss()
+    criterion = Chamfer_Loss(args)  #Varifold_loss(args) #Masked_Loss(args) # nn.MSELoss()
     mse = nn.MSELoss()
 
     optim = torch.optim.Adam(d2d.parameters(), lr=args.lr)

@@ -3,7 +3,13 @@ from torch import nn
 from torch.nn import functional as F
 from .pointnet2_utils import PointNetSetAbstractionMsg, PointNetSetAbstraction, PointNetFeaturePropagation
 from .spiralnet import SpiralConv
+from torch.nn import Sequential as Seq, Linear as Lin, BatchNorm1d, LeakyReLU, Dropout
 
+def MLP(channels, bias=False, nonlin=LeakyReLU(negative_slope=0.2)):
+    return Seq(*[
+        Seq(Lin(channels[i - 1], channels[i], bias=bias), BatchNorm1d(channels[i]), nonlin)
+        for i in range(1, len(channels))
+    ])
 
 class PointNet2MSG(nn.Module):
     def __init__(self, normal_channel=True):
@@ -120,6 +126,29 @@ class Decoder(nn.Module):
 
     def forward(self, x):
         x = self.fc1(x).view(x.shape[0], self.num_points, -1)
+        return x
+
+class Decoder_NJF(nn.Module):
+
+    def __init__(self, latent, filters, vertices):
+        nn.Module.__init__(self)
+        self.vertices = vertices
+        self.num_points = vertices.shape[0]
+        size = latent
+        layers = []
+        for f_size in filters:
+            layers.append(nn.Linear(size, f_size))
+            layers.append(nn.LeakyReLU())
+            size = f_size
+        layers.append(nn.Linear(size, self.num_points * 3))
+        self.fc1 = nn.Sequential(*layers)
+
+    def forward(self, x):
+
+        #z = z.repeat(outputs.shape[0],1,1))
+
+        for i in range(len()):
+            x = self.fc1(x).view(x.shape[0], self.num_points, -1)
         return x
 
 
