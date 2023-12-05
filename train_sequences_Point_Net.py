@@ -17,7 +17,7 @@ from transformers import Wav2Vec2Processor
 from wav2vec import Wav2Vec2Model
 from psbody.mesh import Mesh
 from utils import utils, mesh_sampling
-from data_loader import get_dataloaders
+from ScanTalk.data_loader_diffusion_net import get_dataloaders
 import scipy
 
 
