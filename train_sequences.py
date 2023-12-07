@@ -7,24 +7,36 @@ import torch
 import torch.nn as nn
 import argparse
 from tqdm import tqdm
-from model.model_semi_registered import PointNet2SpiralsAutoEncoder
+from model.model_semi_registered import PointNet2SpiralsAutoEncoder, PointNet2NJFAutoEncoder
+#from model.model_registered import SpiralAutoencoder
 import librosa
 from transformers import Wav2Vec2Processor
 from psbody.mesh import Mesh
 from utils import utils, mesh_sampling
 from data_loader import get_dataloaders
 import scipy
+from pytorch3d.loss import(
+    chamfer_distance,
+    mesh_edge_loss,
+    mesh_laplacian_smoothing,
+    mesh_normal_consistency,
+)
 
+from pytorch3d.structures import Meshes
+
+import lddmm_utils
+
+faces = torch.tensor(np.array(trimesh.load('./template/flame_model/FLAME_sample.ply').faces)).to(dtype=torch.int32)
 
 class Masked_Loss(nn.Module):
     def __init__(self, args):
         super(Masked_Loss, self).__init__()
         self.mse = nn.MSELoss(reduction='none')
-        self.weights = np.load('./template/template/Normalized_d_weights.npy',
-                               allow_pickle=True)
+        self.weights = np.load('./template/template/Normalized_d_weights.npy', allow_pickle=True)
         self.weights = torch.from_numpy(self.weights[:-1]).float().to(args.device)
 
     def forward(self, predictions, target):
+
         rec_loss = torch.mean(self.mse(predictions, target))
 
         landmarks_loss = (self.mse(predictions, target).mean(axis=2) * self.weights).mean()
@@ -36,32 +48,64 @@ class Masked_Loss(nn.Module):
 
         return rec_loss + 10 * landmarks_loss + 10 * vel_loss
 
-
-class My_Masked_Loss(nn.Module):
+class Chamfer_Loss(nn.Module):
     def __init__(self, args):
-        super(My_Masked_Loss, self).__init__()
-        self.indices = np.load(args.mask_path)
-        self.mask = torch.zeros((5023, 3))
-        self.mask[self.indices] = 1
-        self.mask = self.mask.to(args.device)
-        self.mse = nn.MSELoss(reduction='none')
-        self.number_of_indices = self.indices.shape[0]
+        super(Chamfer_Loss, self).__init__()
+        self.device = args.device
+        self.faces = faces.to(self.device)
+        self.w_edge_loss = 0.5
+        self.w_laplacian_loss = 0.05
+        self.w_normal_loss = 0.01
+    def forward(self, predictions, targets):
 
-    def forward(self, predictions, target):
-        rec_loss = torch.mean(self.mse(predictions, target))
+        loss_chamfer, _ = chamfer_distance(predictions, targets)
 
-        masked_rec_loss = (self.mse(predictions, target) * self.mask).sum() / (
-                    self.number_of_indices * predictions.shape[0] * 3)
+        M = Meshes(verts=predictions,
+                   faces=self.faces.repeat(predictions.shape[0], 1, 1))
+
+        if self.w_edge_loss > 0:
+            self.w_edge_loss = self.w_edge_loss * mesh_edge_loss(M)
+        if self.w_laplacian_loss > 0:
+            self.w_laplacian_loss = self.w_laplacian_loss * mesh_laplacian_smoothing(M, method="cot")  # mesh laplacian smoothing
+        if self.w_normal_loss > 0:
+            self.w_normal_loss = self.w_normal_loss * mesh_normal_consistency(M)
 
         prediction_shift = predictions[:, 1:, :] - predictions[:, :-1, :]
-        target_shift = target[:, 1:, :] - target[:, :-1, :]
+        target_shift = targets[:, 1:, :] - targets[:, :-1, :]
 
-        vel_loss = torch.mean((self.mse(prediction_shift, target_shift)))
+        vel_loss = chamfer_distance(prediction_shift, target_shift)[0]
 
-        return rec_loss + masked_rec_loss + 10 * vel_loss
+        return loss_chamfer + self.w_laplacian_loss + self.w_normal_loss + self.w_edge_loss + 10*vel_loss
 
+
+class Varifold_loss(nn.Module):
+    def __init__(self, args):
+        super(Varifold_loss, self).__init__()
+        self.device = args.device
+        self.faces = faces.to(self.device)
+        self.torchdtype = torch.float
+        self.sig = [0.08, 0.02]
+        #self.sig_n = torch.tensor([0.5], dtype=self.torchdtype, device=self.device)
+        for i, sigma in enumerate(self.sig):
+            self.sig[i] = torch.tensor([sigma], dtype=self.torchdtype, device=self.device)
+    def forward(self, predictions, targets):
+        L = []
+        for i in range(predictions.shape[0]):
+            Li = torch.Tensor([0.]).to(self.device)
+            V1, F1 = predictions[i], self.faces
+            V2, F2 = targets[i], self.faces
+
+            for sigma in self.sig:
+                Li += (sigma / self.sig[0]) ** 2 * lddmm_utils.lossVarifoldSurf(F1, V2, F2,
+                                                                lddmm_utils.GaussSquaredKernel_varifold_unoriented(
+                                                                sigma=sigma))(V1)
+
+            L.append(Li)
+
+        return torch.stack(L).mean()
 
 def train(args):
+    use_spirals=False
     device = args.device
     if not os.path.exists(args.result_dir):
         os.makedirs(args.result_dir)
@@ -83,54 +127,57 @@ def train(args):
     template_vertices = torch.tensor(reference.vertices).unsqueeze(0).to(args.device)
 
     # generate/load transform matrices
-    transform_fp = './template/template/transform.pkl'
-    template_fp = args.reference_mesh_file
-    if not os.path.exists(transform_fp):
-        print('Generating transform matrices...')
-        mesh = Mesh(filename=template_fp)
-        ds_factors = [4, 4, 4, 4]
-        _, A, D, U, F, V = mesh_sampling.generate_transform_matrices(
-            mesh, ds_factors)
-        tmp = {
-            'vertices': V,
-            'face': F,
-            'adj': A,
-            'down_transform': D,
-            'up_transform': U
-        }
-        print(tmp)
+    if use_spirals:
+        transform_fp = './template/template/transform.pkl'
+        template_fp = args.reference_mesh_file
+        if not os.path.exists(transform_fp):
+            print('Generating transform matrices...')
+            mesh = Mesh(filename=template_fp)
+            ds_factors = [4, 4, 4, 4]
+            _, A, D, U, F, V = mesh_sampling.generate_transform_matrices(
+                mesh, ds_factors)
+            tmp = {
+                'vertices': V,
+                'face': F,
+                'adj': A,
+                'down_transform': D,
+                'up_transform': U
+            }
+            print(tmp)
 
-        with open(transform_fp, 'wb') as fp:
-            pickle.dump(tmp, fp)
-        print('Done!')
-        print('Transform matrices are saved in \'{}\''.format(transform_fp))
-    else:
-        with open(transform_fp, 'rb') as f:
-            tmp = pickle.load(f, encoding='latin1')
+            with open(transform_fp, 'wb') as fp:
+                pickle.dump(tmp, fp)
+            print('Done!')
+            print('Transform matrices are saved in \'{}\''.format(transform_fp))
+        else:
+            with open(transform_fp, 'rb') as f:
+                tmp = pickle.load(f, encoding='latin1')
 
-    spiral_indices_list = [
-        utils.preprocess_spiral(tmp['face'][idx], args.seq_length[idx],
-                                tmp['vertices'][idx],
-                                args.dilation[idx]).to(device)
-        for idx in range(len(tmp['face']) - 1)
-    ]
-    down_transform_list = [
-        utils.to_sparse(down_transform).to(device)
-        for down_transform in tmp['down_transform']
-    ]
-    up_transform_list = [
-        utils.to_sparse(up_transform).to(device)
-        for up_transform in tmp['up_transform']
-    ]
+        spiral_indices_list = [
+            utils.preprocess_spiral(tmp['face'][idx], args.seq_length[idx],
+                                    tmp['vertices'][idx],
+                                    args.dilation[idx]).to(device)
+            for idx in range(len(tmp['face']) - 1)
+        ]
+        down_transform_list = [
+            utils.to_sparse(down_transform).to(device)
+            for down_transform in tmp['down_transform']
+        ]
+        up_transform_list = [
+            utils.to_sparse(up_transform).to(device)
+            for up_transform in tmp['up_transform']
+        ]
 
     dataset = get_dataloaders(args)
 
-    #d2d = PointNet2SpiralsAutoEncoder(args.in_channels, args.out_channels, args.latent_channels,
-          #                  spiral_indices_list, down_transform_list,
-           #                 up_transform_list).to(device)
+    #d2d = PointNet2SpiralsAutoEncoder(args.latent_channels, args.in_channels, args.out_channels,
+    #                                  spiral_indices_list, down_transform_list, up_transform_list).to(args.device)
 
-    d2d = PointNet2SpiralsAutoEncoder(args.latent_channels, args.in_channels, args.out_channels,
-                                spiral_indices_list, down_transform_list, up_transform_list).to(device)
+    #d2d = SpiralAutoencoder(args.in_channels, args.out_channels, args.latent_channels,
+    #       spiral_indices_list, down_transform_list,
+    #       up_transform_list).to(args.device)
+
+    d2d = PointNet2NJFAutoEncoder(latent_channels=args.latent_channels, point_dim=3).to(args.device)
 
     starting_epoch = 0
     if args.load_model == True:
@@ -145,7 +192,7 @@ def train(args):
 
     lip_mask = np.reshape(np.array(lip_mask, dtype=np.int64), (lip_mask.shape[0]))
 
-    criterion = Masked_Loss(args)
+    criterion = Masked_Loss(args)  ##Chamfer_Loss(args)  ##Varifold_loss(args)  ##Masked_Loss(args)
     criterion_val = nn.MSELoss()
 
     optim = torch.optim.Adam(d2d.parameters(), lr=args.lr)
@@ -287,7 +334,7 @@ def main():
                         nargs='+',
                         default=[32, 64, 64, 128],  # divided by 2
                         type=int)
-    parser.add_argument('--latent_channels', type=int, default=64)
+    parser.add_argument('--latent_channels', type=int, default=32)
     parser.add_argument('--in_channels', type=int, default=3)
     parser.add_argument('--seq_length', type=int, default=[9, 9, 9, 9], nargs='+')
     parser.add_argument('--dilation', type=int, default=[1, 1, 1, 1], nargs='+')

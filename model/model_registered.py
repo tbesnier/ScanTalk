@@ -2,16 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch_scatter import scatter_add
-from torch.nn import Sequential as Seq, Linear as Lin, BatchNorm1d, LeakyReLU, Dropout
 from wav2vec import Wav2Vec2Model
-
-import pdb
-
-def MLP(channels, bias=False, nonlin=LeakyReLU(negative_slope=0.2)):
-    return Seq(*[
-        Seq(Lin(channels[i - 1], channels[i], bias=bias), BatchNorm1d(channels[i]), nonlin)
-        for i in range(1, len(channels))
-    ])
 
 
 def Pool(x, trans, dim=1):
@@ -108,8 +99,6 @@ class SpiralAutoencoder(nn.Module):
         self.down_transform = down_transform
         self.up_transform = up_transform
         self.num_vert = self.down_transform[-1].size(0)
-        self.audio_encoder = Wav2Vec2Model.from_pretrained("facebook/wav2vec2-base-960h")
-        self.audio_encoder.feature_extractor._freeze_parameters()
 
         # encoder
         self.en_layers = nn.ModuleList()
@@ -128,7 +117,7 @@ class SpiralAutoencoder(nn.Module):
         # decoder
         self.de_layers = nn.ModuleList()
         self.de_layers.append(
-            nn.Linear(latent_channels * 2, self.num_vert * out_channels[-1]))
+            nn.Linear(latent_channels, self.num_vert * out_channels[-1]))
         for idx in range(len(out_channels)):
             if idx == 0:
                 self.de_layers.append(
@@ -142,9 +131,11 @@ class SpiralAutoencoder(nn.Module):
         self.de_layers.append(
             SpiralConv(out_channels[0], in_channels, self.spiral_indices[0], init=True))
 
+        self.audio_encoder = Wav2Vec2Model.from_pretrained("facebook/wav2vec2-base-960h")
+        self.audio_encoder.feature_extractor._freeze_parameters()
         self.audio_embedding = nn.Linear(768, self.latent_channels)
         self.lstm = nn.LSTM(input_size=self.latent_channels * 2, hidden_size=int(self.latent_channels / 2),
-                            num_layers=5, batch_first=True, bidirectional=True)
+                            num_layers=3, batch_first=True, bidirectional=True)
 
         # self.reset_parameters()
 

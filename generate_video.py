@@ -1,7 +1,4 @@
-
 import argparse
-from torch.utils.data import DataLoader
-from sklearn.metrics.pairwise import euclidean_distances
 import os
 import cv2
 import tempfile
@@ -11,21 +8,11 @@ from psbody.mesh import Mesh
 import pyrender
 import trimesh
 import glob
-import librosa
 
 os.environ['PYOPENGL_PLATFORM'] = 'egl'
-def get_unit_factor(unit):
-    if unit == 'mm':
-        return 1000.0
-    elif unit == 'cm':
-        return 100.0
-    elif unit == 'm':
-        return 1.0
-    else:
-        raise ValueError('Unit not supported')
 
-def render_mesh_helper(mesh, t_center, rot=np.zeros(3), tex_img=None, v_colors=None, errors=None, error_unit='m', min_dist_in_mm=0.0, max_dist_in_mm=3.0, z_offset=0):
-
+def render_mesh_helper(mesh, t_center, rot=np.zeros(3), tex_img=None, v_colors=None, errors=None, error_unit='m',
+                       min_dist_in_mm=0.0, max_dist_in_mm=3.0, z_offset=0):
     background_black = True
     camera_params = {'c': np.array([400, 400]),
                      'k': np.array([-0.19816071, 0.92822711, 0, 0, 0]),
@@ -102,7 +89,9 @@ def render_mesh_helper(mesh, t_center, rot=np.zeros(3), tex_img=None, v_colors=N
 
     return color[..., ::-1]
 
-def render_sequence_meshes(audio_fname, sequence_vertices, template, out_path , out_fname, fps, uv_template_fname='', texture_img_fname=''):
+
+def render_sequence_meshes(audio_path, sequence_vertices, template, out_path, out_fname, fps, uv_template_fname='',
+                           texture_img_fname=''):
     if not os.path.exists(out_path):
         os.makedirs(out_path)
 
@@ -115,7 +104,7 @@ def render_sequence_meshes(audio_fname, sequence_vertices, template, out_path , 
     if os.path.exists(uv_template_fname) and os.path.exists(texture_img_fname):
         uv_template = Mesh(filename=uv_template_fname)
         vt, ft = uv_template.vt, uv_template.ft
-        tex_img = cv2.imread(texture_img_fname)[:,:,::-1]
+        tex_img = cv2.imread(texture_img_fname)[:, :, ::-1]
     else:
         vt, ft = None, None
         tex_img = None
@@ -133,16 +122,13 @@ def render_sequence_meshes(audio_fname, sequence_vertices, template, out_path , 
     writer.release()
 
     video_fname = os.path.join(out_path, out_fname)
-    cmd = ('ffmpeg' + ' -i {0} -i {1} -vcodec h264 -ac 2 -channel_layout stereo -pix_fmt yuv420p -ar 22050 {2}'.format(
-        audio_fname, tmp_video_file.name, video_fname)).split()
+    cmd = ('ffmpeg' + ' -i {0} -i {1} -ac 2 -channel_layout stereo -pix_fmt yuv420p -ar 22050 {2}'.format(
+        tmp_video_file.name, audio_path, video_fname)).split()
     call(cmd)
 
-def generate_mesh_video(out_path, out_fname, meshes_path_fname, fps, audio_fname, template):
 
+def generate_mesh_video(audio_path, out_path, out_fname, meshes_path_fname, fps, template):
     sequence_fnames = sorted(glob.glob(os.path.join(meshes_path_fname, '*.ply*')))
-
-    audio_fname = audio_fname
-
 
     uv_template_fname = template
     sequence_vertices = []
@@ -156,40 +142,38 @@ def generate_mesh_video(out_path, out_fname, meshes_path_fname, fps, audio_fname
 
     template = Mesh(sequence_vertices[0], f)
     sequence_vertices = np.stack(sequence_vertices)
-    render_sequence_meshes(audio_fname, sequence_vertices, template, out_path, out_fname, fps, uv_template_fname=uv_template_fname, texture_img_fname='')
+    render_sequence_meshes(audio_path, sequence_vertices, template, out_path, out_fname, fps,
+                           uv_template_fname=uv_template_fname, texture_img_fname='')
 
 
 def main():
-    parser = argparse.ArgumentParser(description='S2L+S2D: Speech-Driven 3D Talking heads')
+    # In the function render_mesh_helper you can customize your rendering
+    parser = argparse.ArgumentParser(description='Python file to render a sequence of meshes into a video')
+    # Path where you want to save the video
     parser.add_argument("--device", type=str, default="cuda:0")
-    parser.add_argument("--audio_path", type=str, default='../Data/VOCA/res/TH/photo.wav', help='audio to animate')
-    parser.add_argument("--meshes_path", type=str, default='../Data/VOCA/res/Results_Actor/Meshes/130', help='path for results')
-    parser.add_argument("--meshes_path_training", type=str, default='../Data/VOCA/res/Results_Actor/Meshes_Training/130', help='path for results')
-    parser.add_argument("--flame_template", type=str, default="template/flame_model/FLAME_sample.ply", help='template_path')
+    parser.add_argument("--audio_path", type=str, default='../Data/VOCA/res/TH/short_audio.wav', help='audio to animate')
+    parser.add_argument("--meshes_path", type=str, default='../Data/VOCA/res/Results_Actor/Meshes_infer',
+                        help='path for results')
+    parser.add_argument("--flame_template", type=str, default="./template/flame_model/FLAME_sample.ply",
+                        help='template_path')
     parser.add_argument("--save_path", type=str, default="../Data/VOCA/res/Results_Actor", help='template_path')
-    parser.add_argument("--video_name", type=str, default="Chamfer_loss_unseen.mp4", help='name of the rendered video')
-    parser.add_argument("--video_name_training", type=str, default="chamfer_loss_training.mp4", help='name of the rendered video')
+    parser.add_argument("--video_name", type=str, default="TEST_decoder.mp4", help='name of the rendered video')
     parser.add_argument("--fps", type=int, default=60, help='frames per second')
 
     args = parser.parse_args()
 
-    print('Video Generation Training')
-    generate_mesh_video(args.save_path,
-                        args.video_name_training,
-                        args.meshes_path_training,
-                        args.fps,
-                        args.audio_path,
-                        args.flame_template)
-    print('done')
+    if not os.path.exists(args.save_path):
+        os.makedirs(args.save_path)
 
-    print('Video Generation Unseen')
-    generate_mesh_video(args.save_path,
+    print('Video Generation')
+    generate_mesh_video(args.audio_path,
+                        args.save_path,
                         args.video_name,
                         args.meshes_path,
                         args.fps,
-                        args.audio_path,
                         args.flame_template)
     print('done')
+
 
 if __name__ == '__main__':
     main()

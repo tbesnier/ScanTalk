@@ -7,7 +7,6 @@ from wav2vec import Wav2Vec2Model
 import pickle
 from scipy.io import wavfile
 
-
 data_path = '../datasets/VOCA_training/vertices_npy'
 audio_path = '../datasets/VOCA_training/wav'
 
