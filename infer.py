@@ -11,7 +11,7 @@ import pickle
 from transformers import Wav2Vec2Processor
 from wav2vec import Wav2Vec2Model
 
-from d2d_plus import SpiralAutoencoder
+from model.model_semi_registered import PointNet2SpiralsAutoEncoder, PointNet2NJFAutoEncoder
 from psbody.mesh import Mesh
 from utils import utils, mesh_sampling
 
@@ -78,9 +78,14 @@ def infer(args):
         for up_transform in tmp['up_transform']
     ]
 
-    model = SpiralAutoencoder(args.in_channels, args.out_channels, args.latent_channels,
-                      spiral_indices_list, down_transform_list,
-                      up_transform_list).to(args.device)
+    #model = SpiralAutoencoder(args.in_channels, args.out_channels, args.latent_channels,
+     #                 spiral_indices_list, down_transform_list,
+     #                 up_transform_list).to(args.device)
+
+    #model = PointNet2SpiralsAutoEncoder(args.latent_channels, args.in_channels, args.out_channels,
+    #                            spiral_indices_list, down_transform_list, up_transform_list).to(args.device)
+
+    model = PointNet2NJFAutoEncoder(latent_channels=args.latent_channels, point_dim=3, device=args.device).to(args.device)
 
     checkpoint_dict = torch.load(os.path.join(args.model_path), map_location=args.device)
     model.load_state_dict(checkpoint_dict['autoencoder_state_dict'])
@@ -91,11 +96,11 @@ def infer(args):
         speech_array, sampling_rate = librosa.load(args.sample_audio, sr=16000)
         audio_feature = np.squeeze(processor(speech_array, sampling_rate=sampling_rate).input_values)
         audio_feature = np.reshape(audio_feature, (-1, audio_feature.shape[0]))
-        audio_feature = torch.FloatTensor(audio_feature)
-        hidden_states = audio_encoder(audio_feature).last_hidden_state.to(args.device)
+        audio_feature = torch.FloatTensor(audio_feature).to(args.device)
+        #hidden_states = audio_encoder(audio_feature).last_hidden_state.to(args.device)
 
         #gen_seq = model.predict_new(hidden_states, template_vertices)
-        gen_seq = model.predict_cat_audio(hidden_states, template_vertices)
+        gen_seq = model.predict(audio_feature, template_vertices.float())
         gen_seq = gen_seq.cpu().detach().numpy()
 
         for m in range(len(gen_seq)):
@@ -110,23 +115,23 @@ def infer(args):
 
 def main():
     parser = argparse.ArgumentParser(description='Infer ScanTalk on a mesh file with an audio file and visualize what happens during inference')
-    parser.add_argument("--device", type=str, default="cuda:0")
+    parser.add_argument("--device", type=str, default="cuda:1")
     parser.add_argument("--result_dir", type=str, default='../Data/VOCA/res/Results_Actor/Meshes_infer/')
     parser.add_argument("--reference_mesh_file", type=str, default='./template/flame_model/FLAME_sample.ply',
                         help='path of the template')
-    parser.add_argument("--sample_audio", type=str, default='../Data/VOCA/res/TH/photo.wav')
+    parser.add_argument("--sample_audio", type=str, default='../Data/VOCA/res/TH/short_audio.wav')
     parser.add_argument("--template_file", type=str, default="../datasets/VOCA_training/templates.pkl",
                         help='faces to animate')
-    parser.add_argument("--model_path", type=str, default='../Data/VOCA/res/Results_Actor/Models/d2d_ScanTalk_new_training_strat_disp130.pth.tar')
+    parser.add_argument("--model_path", type=str, default='../Data/VOCA/res/Results_Actor/Models/d2d_ScanTalk_bigger_lstm_masked_velocity_loss.pth.tar')
 
     ##Spiral++ hyperparameters
     parser.add_argument('--out_channels',
                         nargs='+',
-                        default=[64, 128, 128, 256],
+                        default=[32, 64, 64, 128],
                         type=int)
-    parser.add_argument('--latent_channels', type=int, default=64)
+    parser.add_argument('--latent_channels', type=int, default=32)
     parser.add_argument('--in_channels', type=int, default=3)
-    parser.add_argument('--seq_length', type=int, default=[12, 12, 12, 12], nargs='+')
+    parser.add_argument('--seq_length', type=int, default=[9, 9, 9, 9], nargs='+')
     parser.add_argument('--dilation', type=int, default=[1, 1, 1, 1], nargs='+')
 
     args = parser.parse_args()

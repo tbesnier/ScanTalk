@@ -3,10 +3,10 @@ import polyscope.imgui as psim
 import trimesh as tri
 import numpy as np
 import os, time
-from vedo import *
-from vedo import dataurl, Plotter, Mesh, Video
-import vedo
-vedo.settings.default_backend= 'vtk'
+#from vedo import *
+#from vedo import dataurl, Plotter, Mesh, Video
+#import vedo
+#vedo.settings.default_backend= 'vtk'
 
 ui_int = 0
 colors = [
@@ -69,10 +69,10 @@ def callback():
 
 
 if __name__ == '__main__':
-    GT = True
+    GT = False
     render_vid = False
 
-    meshes_dir = '../Data/VOCA/res/Results_Actor/Meshes_Training/140'
+    meshes_dir = '../Data/VOCA/res/Results_Actor/Meshes_infer'
     l_mesh_dir = len(os.listdir(meshes_dir))
     meshes = [tri.load(os.path.join(meshes_dir, 'frame_' + str(i).zfill(3) + '.ply')) for i in range(0, l_mesh_dir)]
     disp_vectors = np.array([meshes[i + 1].vertices - meshes[i].vertices for i in range(len(meshes) - 1)])
