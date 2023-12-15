@@ -1,6 +1,4 @@
 import os
-import spiral_utils
-import shape_data
 import new_data_loader as new_data_loader
 import pickle
 import trimesh
@@ -16,6 +14,8 @@ from transformers import Wav2Vec2Processor
 from wav2vec import Wav2Vec2Model
 from psbody.mesh import Mesh
 from utils import utils, mesh_sampling
+import shape_data
+
 
 class Masked_Loss(nn.Module):
     def __init__(self, args):
@@ -82,9 +82,9 @@ def train(args):
     meshpackage = 'trimesh'
 
     shapedata = shape_data.ShapeData(nVal=100,
-                              reference_mesh_file=args.reference_mesh_file,
-                              normalization=False,
-                              meshpackage=meshpackage, load_flag=False)
+                                     reference_mesh_file=args.reference_mesh_file,
+                                     normalization=False,
+                                     meshpackage=meshpackage, load_flag=False)
 
     shapedata.n_vertex = 5023
     shapedata.n_features = 3

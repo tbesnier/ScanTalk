@@ -2,6 +2,7 @@ import torch
 import os
 import numpy as np
 import openmesh as om
+import trimesh
 
 def makedirs(folder):
     if not os.path.exists(folder):
@@ -32,3 +33,11 @@ def preprocess_spiral(face, seq_length, vertices=None, dilation=1):
     return spirals
 
 
+def export_mesh(V, F, file_name):
+    """
+    Export mesh as .ply file from vertices coordinates and face connectivity
+    """
+    result = trimesh.exchange.ply.export_ply(trimesh.Trimesh(V, F), encoding='ascii')
+    output_file = open(file_name, "wb+")
+    output_file.write(result)
+    output_file.close()
