@@ -4,19 +4,21 @@ import torch.nn.functional as F
 import numpy as np
 import copy
 import math
-from transformers import Wav2Vec2Model,Wav2Vec2Config
+from transformers import Wav2Vec2Model, Wav2Vec2Config
 from transformers.modeling_outputs import BaseModelOutput
 from typing import Optional, Tuple
+
 _CONFIG_FOR_DOC = "Wav2Vec2Config"
+
 
 # the implementation of Wav2Vec2Model is borrowed from https://huggingface.co/transformers/_modules/transformers/models/wav2vec2/modeling_wav2vec2.html#Wav2Vec2Model
 # initialize our encoder with the pre-trained wav2vec 2.0 weights.
 def _compute_mask_indices(
-    shape: Tuple[int, int],
-    mask_prob: float,
-    mask_length: int,
-    attention_mask: Optional[torch.Tensor] = None,
-    min_masks: int = 0,
+        shape: Tuple[int, int],
+        mask_prob: float,
+        mask_length: int,
+        attention_mask: Optional[torch.Tensor] = None,
+        min_masks: int = 0,
 ) -> np.ndarray:
     bsz, all_sz = shape
     mask = np.full((bsz, all_sz), False)
@@ -60,26 +62,30 @@ def _compute_mask_indices(
         mask[i, mask_idc] = True
     return mask
 
+
 # linear interpolation layer
 def linear_interpolation(features, input_fps, output_fps, output_len=None):
     features = features.transpose(1, 2)
     seq_len = features.shape[2] / float(input_fps)
     if output_len is None:
         output_len = int(seq_len * output_fps)
-    output_features = F.interpolate(features,size=output_len,align_corners=True,mode='linear')
+    output_features = F.interpolate(features, size=output_len, align_corners=True, mode='linear')
     return output_features.transpose(1, 2)
+
 
 class Wav2Vec2Model(Wav2Vec2Model):
     def __init__(self, config):
         super().__init__(config)
+
     def forward(
-        self,
-        input_values,
-        attention_mask=None,
-        output_attentions=None,
-        output_hidden_states=None,
-        return_dict=None,
-        frame_num=None
+            self,
+            input_values,
+            dataset,
+            attention_mask=None,
+            output_attentions=None,
+            output_hidden_states=None,
+            return_dict=None,
+            frame_num=None
     ):
         self.config.output_attentions = True
         output_attentions = output_attentions if output_attentions is not None else self.config.output_attentions
@@ -91,8 +97,13 @@ class Wav2Vec2Model(Wav2Vec2Model):
         hidden_states = self.feature_extractor(input_values)
         hidden_states = hidden_states.transpose(1, 2)
 
-        hidden_states = linear_interpolation(hidden_states, 50, 60, output_len=frame_num)
-     
+        if dataset == 'vocaset':
+            fps = 30
+        if dataset == 'BIWI':
+            fps = 25
+
+        hidden_states = linear_interpolation(hidden_states, 50, fps, output_len=frame_num)
+
         if attention_mask is not None:
             output_lengths = self._get_feat_extract_output_lengths(attention_mask.sum(-1))
             attention_mask = torch.zeros(
@@ -103,7 +114,7 @@ class Wav2Vec2Model(Wav2Vec2Model):
             ] = 1
             attention_mask = attention_mask.flip([-1]).cumsum(-1).flip([-1]).bool()
 
-        hidden_states, extract_features = self.feature_projection(hidden_states)
+        hidden_states, _ = self.feature_projection(hidden_states)
 
         if self.config.apply_spec_augment and self.training:
             batch_size, sequence_length, hidden_size = hidden_states.size()

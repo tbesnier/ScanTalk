@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch_scatter import scatter_add
-from .pointnet2_utils import PointNetSetAbstraction
+from .pointnet2_utils import PointNetSetAbstraction, PointNetFeaturePropagation
 from .spiralnet import SpiralConv
 from wav2vec import Wav2Vec2Model
 from tqdm import tqdm
@@ -119,26 +119,35 @@ class SpiralConv(nn.Module):
 
 
 class PointNet2(nn.Module):
-    def __init__(self, latent_channels, normal_channel=True):
+    def __init__(self, latent_channels, per_point_features=False, normal_channel=True):
         super(PointNet2, self).__init__()
         in_channel = 6 if normal_channel else 3
         self.normal_channel = normal_channel
+        self.per_point_features = per_point_features
         self.sa1 = PointNetSetAbstraction(npoint=128, radius=0.2, nsample=32, in_channel=in_channel, mlp=[64, 64, 128],
                                           group_all=False)
         self.sa2 = PointNetSetAbstraction(npoint=32, radius=0.4, nsample=64, in_channel=128 + 3, mlp=[128, 128, 256],
                                           group_all=False)
         self.sa3 = PointNetSetAbstraction(npoint=None, radius=None, nsample=None, in_channel=256 + 3,
                                           mlp=[256, 512, 1024], group_all=True)
+
+        self.fp3 = PointNetFeaturePropagation(in_channel=1280, mlp=[256, 256])
+        self.fp2 = PointNetFeaturePropagation(in_channel=384, mlp=[256, 128])
+        self.fp1 = PointNetFeaturePropagation(in_channel=128 + in_channel, mlp=[128, 128, 128])
+
         self.fc1 = nn.Linear(1024, 512)
-        self.bn1 = nn.InstanceNorm1d(512) ##LayerNorm ??
+        self.bn1 = nn.InstanceNorm1d(512)
         self.drop1 = nn.Dropout(0.4)
         self.fc2 = nn.Linear(512, 256)
         self.bn2 = nn.InstanceNorm1d(256)
         self.drop2 = nn.Dropout(0.4)
         self.fc3 = nn.Linear(256, latent_channels)
 
+        self.conv1 = nn.Conv1d(128, 8, 1)
+        self.bn0 = nn.InstanceNorm1d(8)
+
     def forward(self, xyz):
-        B, _, _ = xyz.shape
+        B, C, N = xyz.shape
         xyz = xyz.permute(0, 2, 1)
         if self.normal_channel:
             norm = xyz[:, 3:, :]
@@ -148,24 +157,43 @@ class PointNet2(nn.Module):
         l1_xyz, l1_points = self.sa1(xyz, norm)
         l2_xyz, l2_points = self.sa2(l1_xyz, l1_points)
         l3_xyz, l3_points = self.sa3(l2_xyz, l2_points)
+
+        # Feature Propagation layers
+        l2_points = self.fp3(l2_xyz, l3_xyz, l2_points, l3_points)
+        l1_points = self.fp2(l1_xyz, l2_xyz, l1_points, l2_points)
+        #cls_label_one_hot = cls_label.view(B, 16, 1).repeat(1, 1, N)
+        l0_points = self.fp1(xyz, l1_xyz, xyz, l1_points)
+
+        # FC layers
+        per_point_feat = F.relu(self.bn0(self.conv1(l0_points)))
+
         x = l3_points.view(B, 1024)
         x = self.drop1(F.relu(self.bn1(self.fc1(x))))
         x = self.drop2(F.relu(self.bn2(self.fc2(x))))
-        #x = self.drop1(F.relu(self.fc1(x)))
-        #x = self.drop2(F.relu(self.fc2(x)))
         x = self.fc3(x)
 
-        return x
+        #print(x.shape)
+        #print(per_point_feat[0, :, 0])
+        #print(per_point_feat[0, :, 1])
+        if self.per_point_features:
+            return x, per_point_feat
+        else:
+            return x
 
 
 class PointNet2Encoder(nn.Module):
-    def __init__(self, latent_channels, normal_channel=False):
+    def __init__(self, latent_channels, per_point_features=False, normal_channel=False):
         nn.Module.__init__(self)
-        self.ptnet2 = PointNet2(latent_channels, normal_channel)
+        self.per_point_features = per_point_features
+        self.ptnet2 = PointNet2(latent_channels, per_point_features, normal_channel)
 
     def forward(self, x):
-        x = self.ptnet2(x)
-        return x
+
+        if self.per_point_features:
+            x, per_point_feat = self.ptnet2(x)
+            return x, per_point_feat
+        else:
+            return self.ptnet2(x)
 
 
 class SpiralNet2Decoder(nn.Module):
@@ -225,16 +253,53 @@ class SpiralNet2Decoder(nn.Module):
         return x_hat
 
 
+class NJFDecoder_Conv1d(nn.Module):
+    def __init__(self, latent_channel, point_dim=3, device="cuda:0"):
+        super(NJFDecoder_Conv1d, self).__init__()
+        self.latent_channel = latent_channel
+        self.point_dim = point_dim
+        self.device = device
+        self.relu = nn.ReLU()
+
+        self.conv1 = nn.Conv1d(latent_channel + point_dim, 128, 1)
+        self.conv2 = nn.Conv1d(128, 64, 1)
+        self.conv3 = nn.Conv1d(64, 32, 1)
+        self.last_layer = nn.Conv1d(32, 3, 1)
+        self.bn1 = nn.InstanceNorm1d(128)
+        self.bn2 = nn.InstanceNorm1d(64)
+        self.bn3 = nn.InstanceNorm1d(32)
+        self.bn4 = nn.InstanceNorm1d(3)
+
+        #nn.init.constant_(self.last_layer.weight, 0)
+        #nn.init.constant_(self.last_layer.bias, 0)
+
+
+    def decode(self, z, actor_per_point_feat):
+
+        NV = actor_per_point_feat.shape[-1]
+        latent_all = z.unsqueeze(-1).expand(-1, -1, NV)
+        #actor = actor_per_point_feat.transpose(1, 2)
+        x = torch.cat([actor_per_point_feat, latent_all], dim=1)
+
+        x = self.relu(self.bn1(self.conv1(x)))
+        x = self.relu(self.bn2(self.conv2(x)))
+        x = self.relu(self.bn3(self.conv3(x)))
+        x = self.relu(self.last_layer(x))
+        print(self.last_layer.weight[0])
+
+        return x.transpose(1, 2)
+
+    def forward(self, x, actor_per_point_feat):
+        x_hat = self.decode(x, actor_per_point_feat=actor_per_point_feat)
+        return x_hat
+
+
 class NJFDecoder(nn.Module):
     def __init__(self, latent_channel, point_dim=3, device="cuda:0", init=True):
         super(NJFDecoder, self).__init__()
         self.latent_channel = latent_channel
         self.point_dim = point_dim
         self.device = device
-        #self.last_layer = Lin(64, 3)
-        #self.per_vertex_decoder = Seq(MLP([self.point_dim + self.latent_channel, 128], normalization="layer", nonlin=ReLU()),
-         #                             Dropout(0.5), MLP([128,64], normalization="layer", nonlin=ReLU()),
-          #                            Dropout(0.5), self.last_layer)
         hid_shape=64
         linear_layer = nn.Linear
         self.linears = [linear_layer(self.point_dim + self.latent_channel, hid_shape, bias=False)]
@@ -254,75 +319,22 @@ class NJFDecoder(nn.Module):
             nn.init.constant_(self.linear_out.bias, 0)
 
 
-    def decode(self, z, actor):
+    def decode(self, z, actor_per_point_feat):
 
-        NV = actor.shape[1]
+        NV = actor_per_point_feat.shape[-1]
         latent_all = z.unsqueeze(1).expand(1, NV, -1)
+        actor_per_point_feat = actor_per_point_feat.transpose(1,2)
 
-        x = torch.cat([actor, latent_all], dim=-1)
+        x = torch.cat([actor_per_point_feat, latent_all], dim=-1)
         out = x
         for _ in range(len(self.linears)):
             out = torch.transpose(self.relu(self.gns[_](torch.transpose(self.linears[_](out), -1, -2))), -1, -2)
 
         out = self.linear_out(out)
-
-        #deformation = torch.zeros(actor.shape).to(self.device)
-        #unif = torch.ones(actor.shape[1]).to(self.device)
-        #idx = unif.multinomial(200, replacement=True)
-
-        # for i in range(200):
-        #     new_z = torch.cat([z, actor[:, idx[i]]], dim=1)
-        #     per_vertex_def = self.per_vertex_decoder(new_z)
-        #     deformation[:, idx[i], :] = per_vertex_def
-
         return out
 
-    def forward(self, x, actor):
-        x_hat = self.decode(x, actor=actor)
-        return x_hat
-
-class NJFDecoder_CONV1D(nn.Module):
-    def __init__(self, latent_channel, point_dim=3, device="cuda:0", init=True):
-        super(NJFDecoder_CONV1D, self).__init__()
-        self.latent_channel = latent_channel
-        self.point_dim = point_dim
-        self.device = device
-
-        hid_shape=64
-        linear_layer = nn.Linear
-        self.linears = [linear_layer(self.point_dim + self.latent_channel, hid_shape, bias=False)]
-        for _ in range(4):
-            self.linears.append(linear_layer(hid_shape, hid_shape, bias=False))
-
-        self.gns = [nn.InstanceNorm1d(hid_shape) for _ in range(len(self.linears))]
-        self.gns = nn.ModuleList(self.gns)
-
-        self.linears = nn.ModuleList(self.linears)
-        self.linear_out = linear_layer(hid_shape, 3)
-
-        self.relu = nn.ReLU()
-
-        if init == True:
-            nn.init.constant_(self.linear_out.weight, 0)
-            nn.init.constant_(self.linear_out.bias, 0)
-
-
-    def decode(self, z, actor):
-
-        NV = actor.shape[1]
-        latent_all = z.unsqueeze(1).expand(1, NV, -1)
-
-        x = torch.cat([actor, latent_all], dim=-1)
-        out = x
-        for _ in range(len(self.linears)):
-            out = torch.transpose(self.relu(self.gns[_](torch.transpose(self.linears[_](out), -1, -2))), -1, -2)
-
-        out = self.linear_out(out)
-
-        return out
-
-    def forward(self, x, actor):
-        x_hat = self.decode(x, actor=actor)
+    def forward(self, x, actor_per_point_feat):
+        x_hat = self.decode(x, actor_per_point_feat=actor_per_point_feat)
         return x_hat
 
 
@@ -372,48 +384,84 @@ class PointNet2SpiralsAutoEncoder(nn.Module):
         return pred_sequence[1:, :, :]
 
 class PointNet2NJFAutoEncoder(nn.Module):
-    def __init__(self, latent_channels, point_dim=3, device="cuda:0"):
+    def __init__(self, latent_channels, point_dim=8, device="cuda:0"):
         nn.Module.__init__(self)
         self.device = device
-        self.encode = PointNet2Encoder(latent_channels)
+        per_point_features = False
+        if point_dim>3:
+            per_point_features = True
+        self.encode = PointNet2Encoder(latent_channels, per_point_features=per_point_features)
         #self.decode = SpiralNet2Decoder(in_channels, out_channels, latent_channels, spiral_indices,
         #                                down_transform, up_transform)
         self.decode = NJFDecoder(latent_channel=latent_channels, point_dim=point_dim, device=device)
+
+        #self.decode = MLPDecoder(latent=latent_channels)
         self.latent_channels = latent_channels
         self.audio_encoder = Wav2Vec2Model.from_pretrained("facebook/wav2vec2-base-960h")
         self.audio_encoder.feature_extractor._freeze_parameters()
+
         self.audio_embedding = nn.Linear(768, self.latent_channels)
-        self.lstm = nn.LSTM(input_size=self.latent_channels * 2, hidden_size=int(self.latent_channels / 2),
+        self.lstm = nn.LSTM(input_size=2*self.latent_channels, hidden_size=int(self.latent_channels / 2),
                             num_layers=3, batch_first=True, bidirectional=True)
 
     def get_latent(self, x):
-        z = self.encode(x)
+        z, points_features = self.encode(x)
         return z
 
     def forward(self, audio, actor, vertices):
         hidden_states = self.audio_encoder(audio, frame_num=len(vertices)).last_hidden_state
         pred_sequence = actor
         audio_emb = self.audio_embedding(hidden_states)
-        actor_emb = self.encode(actor)
+        actor_emb, per_point_actor_emb = self.encode(actor)
         actor_emb = actor_emb.expand(audio_emb.shape)
         latent, _ = self.lstm(torch.cat([audio_emb, actor_emb], dim=2))
-        #print("FLAG 1")
         for k in range(latent.shape[1]):
-            #print(k)
-            pred = self.decode(latent[:, k, :], actor) + actor
+            d = self.decode(latent[:, k, :], per_point_actor_emb)
+            pred = d + actor
             pred_sequence = torch.vstack([pred_sequence, pred])
 
-        #print("FLAG 2")
         return pred_sequence[1:, :, :]
 
     def predict(self, audio, actor):
         hidden_states = self.audio_encoder(audio).last_hidden_state
         pred_sequence = actor
         audio_emb = self.audio_embedding(hidden_states)
-        actor_emb = self.encode(actor)
+        actor_emb, per_point_actor_emb = self.encode(actor)
         actor_emb = actor_emb.expand(audio_emb.shape)
         latent, _ = self.lstm(torch.cat([audio_emb, actor_emb], dim=2))
         for k in range(latent.shape[1]):
-            pred = self.decode(latent[:, k, :], actor) + actor
+            pred = self.decode(latent[:, k, :], per_point_actor_emb) + actor
             pred_sequence = torch.vstack([pred_sequence, pred])
         return pred_sequence[1:, :, :]
+
+    # def forward(self, audio, actor, vertices):
+    #     hidden_states = self.audio_encoder(audio, frame_num=len(vertices)).last_hidden_state
+    #     pred_sequence = actor
+    #     audio_emb = self.audio_embedding(hidden_states)
+    #     actor_vertices_emb = self.encode(actor)
+    #     latent, _ = self.lstm(audio_emb)
+    #     for k in range(latent.shape[1]):
+    #         pred_points = torch.zeros([1, 1, 3]).to('cuda:0')
+    #         batches = torch.split(actor_vertices_emb, 512, dim=1)
+    #         for batch in batches:
+    #             decoder_input = torch.cat([batch, latent[:, k, :].expand(batch.shape)], dim=-1)
+    #             pred_points = torch.hstack([pred_points, self.global_decoder(decoder_input).unsqueeze(0)])
+    #         pred = pred_points[:, 1:, :] + actor
+    #         pred_sequence = torch.vstack([pred_sequence, pred])
+    #     return pred_sequence[1:, :, :]
+    #
+    # def predict(self, audio, actor):
+    #     hidden_states = self.audio_encoder(audio).last_hidden_state
+    #     pred_sequence = actor
+    #     audio_emb = self.audio_embedding(hidden_states)
+    #     actor_vertices_emb = self.encode(actor)
+    #     latent, _ = self.lstm(audio_emb)
+    #     for k in range(latent.shape[1]):
+    #         pred_points = torch.zeros([1, 1, 3]).to('cuda:0')
+    #         batches = torch.split(actor_vertices_emb, 512, dim=1)
+    #         for batch in batches:
+    #             decoder_input = torch.cat([batch, latent[:, k, :].expand(batch.shape)], dim=-1)
+    #             pred_points = torch.hstack([pred_points, self.global_decoder(decoder_input).unsqueeze(0)])
+    #         pred = pred_points[:, 1:, :] + actor
+    #         pred_sequence = torch.vstack([pred_sequence, pred])
+    #     return pred_sequence[1:, :, :]

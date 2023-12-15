@@ -1,8 +1,6 @@
 import numpy as np
 import argparse
-import os, glob, shutil
-import spiral_utils
-import shape_data
+import os, glob
 import librosa
 import torch
 import trimesh as tri
@@ -11,9 +9,11 @@ import pickle
 from transformers import Wav2Vec2Processor
 from wav2vec import Wav2Vec2Model
 
-from model.model_semi_registered import PointNet2SpiralsAutoEncoder, PointNet2NJFAutoEncoder
+from model.model_semi_registered import PointNet2NJFAutoEncoder
 from psbody.mesh import Mesh
 from utils import utils, mesh_sampling
+import shape_data
+
 
 def infer(args):
 

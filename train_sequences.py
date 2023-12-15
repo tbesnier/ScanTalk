@@ -1,5 +1,4 @@
 import os
-import shape_data
 import pickle
 import trimesh
 import numpy as np
@@ -7,12 +6,13 @@ import torch
 import torch.nn as nn
 import argparse
 from tqdm import tqdm
-from model.model_semi_registered import PointNet2SpiralsAutoEncoder, PointNet2NJFAutoEncoder
-#from model.model_registered import SpiralAutoencoder
+#from model.model_semi_registered import PointNet2NJFAutoEncoder
+from model.model_registered import SpiralAutoencoder
 import librosa
 from transformers import Wav2Vec2Processor
 from psbody.mesh import Mesh
 from utils import utils, mesh_sampling
+import shape_data
 from data_loader import get_dataloaders
 import scipy
 from pytorch3d.loss import(
@@ -46,7 +46,7 @@ class Masked_Loss(nn.Module):
 
         vel_loss = torch.mean((self.mse(prediction_shift, target_shift)))
 
-        return rec_loss + 10 * landmarks_loss + 10 * vel_loss
+        return rec_loss + 10 * landmarks_loss# + 10 * vel_loss
 
 class Chamfer_Loss(nn.Module):
     def __init__(self, args):
@@ -105,7 +105,7 @@ class Varifold_loss(nn.Module):
         return torch.stack(L).mean()
 
 def train(args):
-    use_spirals=False
+    use_spirals=True
     device = args.device
     if not os.path.exists(args.result_dir):
         os.makedirs(args.result_dir)
@@ -170,14 +170,14 @@ def train(args):
 
     dataset = get_dataloaders(args)
 
-    #d2d = PointNet2SpiralsAutoEncoder(args.latent_channels, args.in_channels, args.out_channels,
-    #                                  spiral_indices_list, down_transform_list, up_transform_list).to(args.device)
+    d2d = PointNet2SpiralsAutoEncoder(args.latent_channels, args.in_channels, args.out_channels,
+                                      spiral_indices_list, down_transform_list, up_transform_list).to(args.device)
 
     #d2d = SpiralAutoencoder(args.in_channels, args.out_channels, args.latent_channels,
     #       spiral_indices_list, down_transform_list,
     #       up_transform_list).to(args.device)
 
-    d2d = PointNet2NJFAutoEncoder(latent_channels=args.latent_channels, point_dim=3).to(args.device)
+    d2d = PointNet2NJFAutoEncoder(latent_channels=args.latent_channels, point_dim=8).to(args.device)
 
     starting_epoch = 0
     if args.load_model == True:
@@ -297,7 +297,7 @@ def train(args):
 
 def main():
     parser = argparse.ArgumentParser(description='D2D: Dense to Dense Encoder-Decoder')
-    parser.add_argument("--lr", type=float, default=0.00005, help='learning rate')
+    parser.add_argument("--lr", type=float, default=0.0001, help='learning rate')
     parser.add_argument('--weight_decay', type=float, default=0)
     parser.add_argument("--reference_mesh_file", type=str,
                         default='./template/flame_model/FLAME_sample.ply',
@@ -326,7 +326,9 @@ def main():
                                                              " FaceTalk_170731_00024_TA")
     parser.add_argument("--wav_path", type=str, default="../datasets/VOCA_training/wav",
                         help='path of the audio signals')
-    parser.add_argument("--vertices_path", type=str, default="../datasets/VOCA_training/vertices_npy",
+    parser.add_argument("--vertices_path", type=str, default="../Data/VOCA/preprocessed/vertices_npy",
+                        help='path of the ground truth')
+    parser.add_argument("--vertex_normals_path", type=str, default="../Data/VOCA/preprocessed/verts_normals_npy",
                         help='path of the ground truth')
 
     ##Spiral++ hyperparameters
@@ -334,7 +336,7 @@ def main():
                         nargs='+',
                         default=[32, 64, 64, 128],  # divided by 2
                         type=int)
-    parser.add_argument('--latent_channels', type=int, default=32)
+    parser.add_argument('--latent_channels', type=int, default=64)
     parser.add_argument('--in_channels', type=int, default=3)
     parser.add_argument('--seq_length', type=int, default=[9, 9, 9, 9], nargs='+')
     parser.add_argument('--dilation', type=int, default=[1, 1, 1, 1], nargs='+')

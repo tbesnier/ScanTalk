@@ -8,7 +8,6 @@ from tqdm import tqdm
 from transformers import Wav2Vec2Processor
 import librosa
 
-
 class Dataset(data.Dataset):
     """Custom data.Dataset compatible with data.DataLoader."""
 
@@ -24,7 +23,6 @@ class Dataset(data.Dataset):
         file_name = self.data[index]["name"]
         audio = self.data[index]["audio"]
         vertices = self.data[index]["vertices"]
-        normals = self.data[index]["normals"]
         template = self.data[index]["template"]
 
         return torch.FloatTensor(audio), torch.FloatTensor(vertices), torch.FloatTensor(template), file_name
@@ -49,7 +47,7 @@ def read_data(args):
     with open(template_file, 'rb') as fin:
         templates = pickle.load(fin, encoding='latin1')
     for r, ds, fs in os.walk(audio_path):
-        for f in tqdm(fs[:100]):
+        for f in tqdm(fs[:10]):
             if f.endswith("wav"):
                 wav_path = os.path.join(r, f)
                 speech_array, sampling_rate = librosa.load(wav_path, sr=16000)
