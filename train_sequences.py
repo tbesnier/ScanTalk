@@ -6,7 +6,7 @@ import torch
 import torch.nn as nn
 import argparse
 from tqdm import tqdm
-#from model.model_semi_registered import PointNet2NJFAutoEncoder
+from model.model_semi_registered import PointNet2SpiralsAutoEncoder, PointNet2NJFAutoEncoder
 from model.model_registered import SpiralAutoencoder
 import librosa
 from transformers import Wav2Vec2Processor
@@ -177,7 +177,7 @@ def train(args):
     #       spiral_indices_list, down_transform_list,
     #       up_transform_list).to(args.device)
 
-    d2d = PointNet2NJFAutoEncoder(latent_channels=args.latent_channels, point_dim=8).to(args.device)
+    #d2d = PointNet2NJFAutoEncoder(latent_channels=args.latent_channels, point_dim=8).to(args.device)
 
     starting_epoch = 0
     if args.load_model == True:
