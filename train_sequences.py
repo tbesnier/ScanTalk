@@ -6,7 +6,7 @@ import torch
 import torch.nn as nn
 import argparse
 from tqdm import tqdm
-from model.model_semi_registered import PointNet2SpiralsAutoEncoder, PointNet2NJFAutoEncoder
+from model.model_semi_registered import PointNet2SpiralsAutoEncoder
 from model.model_registered import SpiralAutoencoder
 import librosa
 from transformers import Wav2Vec2Processor
@@ -23,10 +23,12 @@ from pytorch3d.loss import(
 )
 
 from pytorch3d.structures import Meshes
-
 import lddmm_utils
 
-faces = torch.tensor(np.array(trimesh.load('./template/flame_model/FLAME_sample.ply').faces)).to(dtype=torch.int32)
+scaler = torch.cuda.amp.GradScaler()
+
+faces = torch.tensor(np.array(trimesh.load('./template/flame_model/FLAME_sample.ply').faces)).to(
+            device='cuda:0', dtype=torch.int32)
 
 class Masked_Loss(nn.Module):
     def __init__(self, args):
@@ -46,36 +48,46 @@ class Masked_Loss(nn.Module):
 
         vel_loss = torch.mean((self.mse(prediction_shift, target_shift)))
 
-        return rec_loss + 10 * landmarks_loss# + 10 * vel_loss
+        return rec_loss + 10 * landmarks_loss + 10 * vel_loss
 
 class Chamfer_Loss(nn.Module):
     def __init__(self, args):
         super(Chamfer_Loss, self).__init__()
+        faces = torch.tensor(np.array(trimesh.load('./template/flame_model/FLAME_sample.ply').faces)).to(
+            device=args.device, dtype=torch.int32)
         self.device = args.device
         self.faces = faces.to(self.device)
-        self.w_edge_loss = 0.5
-        self.w_laplacian_loss = 0.05
-        self.w_normal_loss = 0.01
+        self.w_edge_loss = 5e-5
+        self.w_laplacian_loss = 0.0
+        self.w_normal_loss = 1e-4
     def forward(self, predictions, targets):
 
+        predictions_reg = predictions.unsqueeze(0)
+
+        edge_loss, lapl_loss, norm_const_loss = torch.Tensor([0.]).to(self.device), torch.Tensor([0.]).to(self.device), torch.Tensor([0.]).to(self.device)
+
+        for t in range(predictions_reg.shape[1]):
+            M = Meshes(verts=predictions_reg[:, t, :, :],
+                       faces=self.faces.unsqueeze(0))
+
+            if self.w_edge_loss > 0:
+                edge_loss += self.w_edge_loss * mesh_edge_loss(M)
+            if self.w_laplacian_loss > 0:
+                lapl_loss += self.w_laplacian_loss * mesh_laplacian_smoothing(M, method="cot")  # mesh laplacian smoothing
+            if self.w_normal_loss > 0:
+                norm_const_loss += self.w_normal_loss * mesh_normal_consistency(M)
+
+        edge_loss, lapl_loss, norm_const_loss = edge_loss/predictions_reg.shape[1], lapl_loss/predictions_reg.shape[1], norm_const_loss/predictions_reg.shape[1]
+
+        predictions.reshape(1, predictions.shape[0], predictions.shape[1] * predictions.shape[2])
+        targets.reshape(1, targets.shape[0], targets.shape[1] * targets.shape[2])
+
         loss_chamfer, _ = chamfer_distance(predictions, targets)
+        #prediction_shift = predictions[:, 1:, :] - predictions[:, :-1, :]
+        #target_shift = targets[:, 1:, :] - targets[:, :-1, :]
+        #vel_loss = chamfer_distance(prediction_shift, target_shift)[0]
 
-        M = Meshes(verts=predictions,
-                   faces=self.faces.repeat(predictions.shape[0], 1, 1))
-
-        if self.w_edge_loss > 0:
-            self.w_edge_loss = self.w_edge_loss * mesh_edge_loss(M)
-        if self.w_laplacian_loss > 0:
-            self.w_laplacian_loss = self.w_laplacian_loss * mesh_laplacian_smoothing(M, method="cot")  # mesh laplacian smoothing
-        if self.w_normal_loss > 0:
-            self.w_normal_loss = self.w_normal_loss * mesh_normal_consistency(M)
-
-        prediction_shift = predictions[:, 1:, :] - predictions[:, :-1, :]
-        target_shift = targets[:, 1:, :] - targets[:, :-1, :]
-
-        vel_loss = chamfer_distance(prediction_shift, target_shift)[0]
-
-        return loss_chamfer + self.w_laplacian_loss + self.w_normal_loss + self.w_edge_loss + 10*vel_loss
+        return loss_chamfer + edge_loss + lapl_loss + norm_const_loss# + vel_loss
 
 
 class Varifold_loss(nn.Module):
@@ -84,25 +96,34 @@ class Varifold_loss(nn.Module):
         self.device = args.device
         self.faces = faces.to(self.device)
         self.torchdtype = torch.float
-        self.sig = [0.08, 0.02]
+        self.sig = [0.05]
         #self.sig_n = torch.tensor([0.5], dtype=self.torchdtype, device=self.device)
         for i, sigma in enumerate(self.sig):
             self.sig[i] = torch.tensor([sigma], dtype=self.torchdtype, device=self.device)
     def forward(self, predictions, targets):
-        L = []
+        L = torch.Tensor([0.]).to(self.device)
         for i in range(predictions.shape[0]):
             Li = torch.Tensor([0.]).to(self.device)
             V1, F1 = predictions[i], self.faces
             V2, F2 = targets[i], self.faces
 
             for sigma in self.sig:
-                Li += (sigma / self.sig[0]) ** 2 * lddmm_utils.lossVarifoldSurf(F1, V2, F2,
-                                                                lddmm_utils.GaussSquaredKernel_varifold_unoriented(
+                Li += lddmm_utils.lossVarifoldSurf(F1, V2, F2, lddmm_utils.GaussSquaredKernel_varifold_unoriented(
                                                                 sigma=sigma))(V1)
+            V1.detach()
+            V2.detach()
+            F1.detach()
+            F2.detach()
 
-            L.append(Li)
+            L += Li
+            Li.detach()
 
-        return torch.stack(L).mean()
+        predictions.reshape(1, predictions.shape[0], predictions.shape[1] * predictions.shape[2])
+        targets.reshape(1, targets.shape[0], targets.shape[1] * targets.shape[2])
+
+        loss_chamfer, _ = chamfer_distance(predictions, targets)
+
+        return L/predictions.shape[0] + loss_chamfer
 
 def train(args):
     use_spirals=True
@@ -170,12 +191,12 @@ def train(args):
 
     dataset = get_dataloaders(args)
 
-    d2d = PointNet2SpiralsAutoEncoder(args.latent_channels, args.in_channels, args.out_channels,
-                                      spiral_indices_list, down_transform_list, up_transform_list).to(args.device)
+    #d2d = PointNet2SpiralsAutoEncoder(args.latent_channels, args.in_channels, args.out_channels,
+    #                                  spiral_indices_list, down_transform_list, up_transform_list).to(args.device)
 
-    #d2d = SpiralAutoencoder(args.in_channels, args.out_channels, args.latent_channels,
-    #       spiral_indices_list, down_transform_list,
-    #       up_transform_list).to(args.device)
+    d2d = SpiralAutoencoder(args.in_channels, args.out_channels, args.latent_channels,
+           spiral_indices_list, down_transform_list,
+           up_transform_list).to(args.device)
 
     #d2d = PointNet2NJFAutoEncoder(latent_channels=args.latent_channels, point_dim=8).to(args.device)
 
@@ -193,7 +214,7 @@ def train(args):
     lip_mask = np.reshape(np.array(lip_mask, dtype=np.int64), (lip_mask.shape[0]))
 
     criterion = Masked_Loss(args)  ##Chamfer_Loss(args)  ##Varifold_loss(args)  ##Masked_Loss(args)
-    criterion_val = nn.MSELoss()
+    criterion_val = nn.MSELoss()  #nn.MSELoss()
 
     optim = torch.optim.Adam(d2d.parameters(), lr=args.lr)
 
@@ -203,19 +224,22 @@ def train(args):
 
         pbar_talk = tqdm(enumerate(dataset["train"]), total=len(dataset["train"]))
         for b, sample in pbar_talk:
+            optim.zero_grad()
             audio = sample[0].to(device)
             vertices = sample[1].to(device).squeeze(0)
+            #faces = sample[2].to(device).squeeze(0)
             template = sample[2].to(device)
-            vertices_pred = d2d.forward(audio, template, vertices)
-            optim.zero_grad()
+            with torch.autocast(device_type='cuda', dtype=torch.float16):
+                vertices_pred = d2d.forward(audio, template, vertices)
+                loss = criterion(vertices_pred, vertices)
 
-            loss = criterion(vertices, vertices_pred)
-            torch.nn.utils.clip_grad_norm_(d2d.parameters(), 10.0)
-            loss.backward()
-            optim.step()
+            #torch.nn.utils.clip_grad_norm_(d2d.parameters(), 10.0)
+            scaler.scale(loss).backward()
+            scaler.step(optim)
             tloss += loss.item()
             pbar_talk.set_description(
                 "(Epoch {}) TRAIN LOSS:{:.10f}".format((epoch + 1), tloss / (b + 1)))
+            scaler.update()
 
         if epoch % 10 == 0:
             d2d.eval()
@@ -227,7 +251,7 @@ def train(args):
                     vertices = sample[1].to(device).squeeze(0)
                     template = sample[2].to(device)
                     vertices_pred = d2d.forward(audio, template, vertices)
-                    loss = criterion_val(vertices, vertices_pred)
+                    loss = criterion_val(vertices_pred, vertices)
                     t_test_loss += loss.item()
                     pbar_talk.set_description(
                         "(Epoch {}) VAL LOSS:{:.10f}".format((epoch + 1), (t_test_loss) / (b + 1)))
@@ -238,7 +262,7 @@ def train(args):
                 audio_feature = np.reshape(audio_feature, (-1, audio_feature.shape[0]))
                 audio_feature = torch.FloatTensor(audio_feature).to(device=args.device)
                 gen_seq = d2d.predict(audio_feature, template_vertices.float())
-
+                audio_feature.detach()
                 gen_seq = gen_seq.cpu().detach().numpy()
 
                 os.makedirs(
@@ -263,6 +287,7 @@ def train(args):
 
                 gen_seq = d2d.predict(audio_feature, face.float().unsqueeze(0))
 
+                face.detach()
                 gen_seq = gen_seq.cpu().detach().numpy()
 
                 os.makedirs(
@@ -297,7 +322,7 @@ def train(args):
 
 def main():
     parser = argparse.ArgumentParser(description='D2D: Dense to Dense Encoder-Decoder')
-    parser.add_argument("--lr", type=float, default=0.0001, help='learning rate')
+    parser.add_argument("--lr", type=float, default=0.00005, help='learning rate')
     parser.add_argument('--weight_decay', type=float, default=0)
     parser.add_argument("--reference_mesh_file", type=str,
                         default='./template/flame_model/FLAME_sample.ply',
@@ -324,11 +349,20 @@ def main():
                                                             " FaceTalk_170908_03277_TA")
     parser.add_argument("--test_subjects", type=str, default="FaceTalk_170809_00138_TA"
                                                              " FaceTalk_170731_00024_TA")
+
+
+    # parser.add_argument("--wav_path", type=str, default="../Data/VOCA/preprocessed_padded/wav",
+    #                    help='path of the audio signals')
+    # parser.add_argument("--vertices_path", type=str, default="../Data/VOCA/preprocessed_padded/vertices_npy",
+    #                     help='path of the ground truth')
+    # parser.add_argument("--faces_path", type=str, default="../Data/VOCA/preprocessed_padded/faces_npy",
+    #                     help='path of the ground truth')
+
     parser.add_argument("--wav_path", type=str, default="../datasets/VOCA_training/wav",
                         help='path of the audio signals')
-    parser.add_argument("--vertices_path", type=str, default="../Data/VOCA/preprocessed/vertices_npy",
+    parser.add_argument("--vertices_path", type=str, default="../datasets/VOCA_training/vertices_npy",
                         help='path of the ground truth')
-    parser.add_argument("--vertex_normals_path", type=str, default="../Data/VOCA/preprocessed/verts_normals_npy",
+    parser.add_argument("--faces_path", type=str, default="../datasets/VOCA_training/faces_npy",
                         help='path of the ground truth')
 
     ##Spiral++ hyperparameters
