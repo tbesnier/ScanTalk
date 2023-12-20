@@ -75,9 +75,7 @@ def preprocess_VOCA_pad(dir_data="../datasets/VOCA_remeshed_test", dir_out="../D
                     norm.append(torch.FloatTensor(np.array(data_loaded.vertex_normals)).to(device))
             cpt+=1
             print(len(sent))
-    #T_pos = T[-1][0] + [T[-1][i] + T[-1][i-1] for i in range(1, len(T) - 1)]
 
-    print(T)
     if normals:
         meshes_sent = Meshes(verts=sent, faces=f, verts_normals=norm)
         verts, faces = meshes_sent.verts_padded().cpu().detach().numpy(), meshes_sent.faces_padded().cpu().detach().numpy()

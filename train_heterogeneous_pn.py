@@ -230,8 +230,7 @@ def train(args):
     d2d = PointNet2SpiralsAutoEncoder(latent_channels=args.latent_channels, in_channels=args.in_channels,
                                       out_channels=args.out_channels,
                                       spiral_indices=spiral_indices_list,
-                                      down_transform=down_transform_list, up_transform=up_transform_list,
-                                      normal_channel=False).to(device)
+                                      down_transform=down_transform_list, up_transform=up_transform_list).to(device)
 
     starting_epoch = 0
     if args.load_model == True:

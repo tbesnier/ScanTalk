@@ -340,13 +340,13 @@ class NJFDecoder(nn.Module):
 
 class PointNet2SpiralsAutoEncoder(nn.Module):
     def __init__(self, latent_channels, in_channels, out_channels,
-                 spiral_indices, down_transform, up_transform, device="cuda:0"):
+                 spiral_indices, down_transform, up_transform, dataset="vocaset", device="cuda:0"):
         nn.Module.__init__(self)
         self.device = device
         self.encode = PointNet2Encoder(latent_channels)
         self.decode = SpiralNet2Decoder(in_channels, out_channels, latent_channels, spiral_indices,
                                         down_transform, up_transform)
-
+        self.dataset = dataset
         self.latent_channels = latent_channels
 
         self.audio_encoder = Wav2Vec2Model.from_pretrained("facebook/wav2vec2-base-960h")
@@ -360,26 +360,28 @@ class PointNet2SpiralsAutoEncoder(nn.Module):
         return z
 
     def forward(self, audio, actor, vertices):
-        hidden_states = self.audio_encoder(audio, frame_num=len(vertices)).last_hidden_state
+        hidden_states = self.audio_encoder(audio, self.dataset, frame_num=len(vertices)).last_hidden_state
         pred_sequence = actor
         audio_emb = self.audio_embedding(hidden_states)
         actor_emb = self.encode(actor)
         actor_emb = actor_emb.expand(audio_emb.shape)
         latent, _ = self.lstm(torch.cat([audio_emb, actor_emb], dim=2))
         for k in range(latent.shape[1]):
-            pred = self.decode(latent[:, k, :]) + actor
+            d = self.decode(latent[:, k, :])
+            pred = d + actor
             pred_sequence = torch.vstack([pred_sequence, pred])
         return pred_sequence[1:, :, :]
 
     def predict(self, audio, actor):
-        hidden_states = self.audio_encoder(audio).last_hidden_state
+        hidden_states = self.audio_encoder(audio, self.dataset).last_hidden_state
         pred_sequence = actor
         audio_emb = self.audio_embedding(hidden_states)
         actor_emb = self.encode(actor)
         actor_emb = actor_emb.expand(audio_emb.shape)
         latent, _ = self.lstm(torch.cat([audio_emb, actor_emb], dim=2))
         for k in range(latent.shape[1]):
-            pred = self.decode(latent[:, k, :]) + actor
+            d = self.decode(latent[:, k, :])
+            pred = d + actor
             pred_sequence = torch.vstack([pred_sequence, pred])
         return pred_sequence[1:, :, :]
 
