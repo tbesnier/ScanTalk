@@ -254,11 +254,11 @@ def main():
                                                               " FaceTalk_170904_00128_TA FaceTalk_170725_00137_TA FaceTalk_170915_00223_TA"
                                                               " FaceTalk_170811_03274_TA FaceTalk_170913_03279_TA"
                                                               " FaceTalk_170904_03276_TA FaceTalk_170912_03278_TA F1 F2 F3 F4 F5 F6 M1 M2 M3 M4"
-                                                              " 20171024 20180226 20180227 20180406 20180418 20180426 20180510 20180927")
+                                                              " 20171024 20180226 20180227 20180406 20180418 20180426 20180510 20180927 20190529")
     parser.add_argument("--val_subjects", type=str, default="FaceTalk_170811_03275_TA"
-                                                            " FaceTalk_170908_03277_TA F7 M5 20190828 20190521")
+                                                            " FaceTalk_170908_03277_TA F7 M5 20190828 20180105")
     parser.add_argument("--test_subjects", type=str, default="FaceTalk_170809_00138_TA"
-                                                             " FaceTalk_170731_00024_TA F8 M6 20181017")
+                                                             " FaceTalk_170731_00024_TA F8 M6 20181017 20190521")
     parser.add_argument("--wav_path_voca", type=str, default="/equilibrium/fnocentini/Datasets/vocaset/wav", help='path of the audio signals')
     parser.add_argument("--vertices_path_voca", type=str, default="/equilibrium/fnocentini/Datasets/vocaset/vertices_npy", help='path of the ground truth')
     parser.add_argument("--wav_path_biwi", type=str, default="/equilibrium/fnocentini/Datasets/Biwi_6/wav", help='path of the audio signals')
