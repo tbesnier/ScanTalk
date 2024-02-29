@@ -2,16 +2,14 @@ import torch
 import os
 import numpy as np
 import openmesh as om
-
+import trimesh
 
 def makedirs(folder):
     if not os.path.exists(folder):
         os.makedirs(folder)
 
-
 def count_parameters(model):
     return sum(p.numel() for p in model.parameters() if p.requires_grad)
-
 
 def to_sparse(spmat):
     return torch.sparse.FloatTensor(
@@ -19,10 +17,8 @@ def to_sparse(spmat):
                           spmat.tocoo().col]),
         torch.FloatTensor(spmat.tocoo().data), torch.Size(spmat.tocoo().shape))
 
-
 def to_edge_index(mat):
     return torch.LongTensor(np.vstack(mat.nonzero()))
-
 
 def preprocess_spiral(face, seq_length, vertices=None, dilation=1):
     from .generate_spiral_seq import extract_spirals
@@ -37,3 +33,11 @@ def preprocess_spiral(face, seq_length, vertices=None, dilation=1):
     return spirals
 
 
+def export_mesh(V, F, file_name):
+    """
+    Export mesh as .ply file from vertices coordinates and face connectivity
+    """
+    result = trimesh.exchange.ply.export_ply(trimesh.Trimesh(V, F), encoding='ascii')
+    output_file = open(file_name, "wb+")
+    output_file.write(result)
+    output_file.close()
