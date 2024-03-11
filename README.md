@@ -11,6 +11,7 @@ Official PyTorch implementation
 ## **Environment**
 
 ## **Demo**
+- First, download the pretrained model at ...
 
 - to animate a mesh in ANY topology, you first need to align it with the training meshes (use blender or ICP). 
 Be aware that the upper and lower lips need to be clearly separated
