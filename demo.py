@@ -8,7 +8,7 @@ import generate_video
 from model.scantalk import DiffusionNetAutoencoder
 from generate_video import *
 
-sys.path.append('./model/diffusion-net/src')
+#sys.path.append('./model/diffusion-net/src')
 import model.diffusion_net as diffusion_net
 
 
@@ -51,7 +51,7 @@ def infer(args):
                               gradX, gradY, faces)
 
         gen_seq = gen_seq.cpu().detach().numpy()
-
+        os.makedirs(args.result_dir, exist_ok=True)
         for m in range(len(gen_seq)):
             mesh = tri.Trimesh(gen_seq[m], template_tri)
             mesh.export(args.result_dir + '/frame_' + str(m).zfill(3) + '.ply')
@@ -60,10 +60,10 @@ def infer(args):
 def main():
     parser = argparse.ArgumentParser(description='Infer ScanTalk on a mesh file with an audio file and visualize what happens during inference')
     parser.add_argument("--device", type=str, default="cuda:0")
-    parser.add_argument("--result_dir", type=str, default='./demo/meshes')
+    parser.add_argument("--result_dir", type=str, default='../demo/meshes')
     parser.add_argument("--reference_mesh_file", type=str, default="./demo/demo_mesh.ply", help='path of the template') # tested on .ply or .obj file
     parser.add_argument("--sample_audio", type=str, default='./demo/demo_audio.wav') # tested on .wav file
-    parser.add_argument("--model_path", type=str, default='./pretrained_model/ScanTalk.pth.tar')
+    parser.add_argument("--model_path", type=str, default='../pretrained_model/ScanTalk.pth.tar')
 
     parser.add_argument('--latent_channels', type=int, default=32)
     parser.add_argument('--in_channels', type=int, default=3)
@@ -74,7 +74,7 @@ def main():
     infer(args)
     print("Done !")
     generate_video.main(audio_path="./demo/demo_audio.wav",
-                        meshes_path="./demo/meshes",
+                        meshes_path="../demo/meshes",
                         save_path="./demo",
                         name="demo.mp4", fps=50)
 

@@ -7,10 +7,9 @@ import pickle
 from tqdm import tqdm
 from transformers import Wav2Vec2Processor
 import librosa
-import sys
 import trimesh
 
-sys.path.append('./model/diffusion-net/src')
+#sys.path.append('./model/diffusion-net/src')
 import model.diffusion_net as diffusion_net
 
 
