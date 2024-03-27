@@ -13,6 +13,7 @@ Official PyTorch implementation
   	<img src="https://github.com/tbesnier/ScanTalk/blob/main/gifs/arnold.gif" alt="animated_arnold" style="width:45%"/>
 </div>
 
+
 ## **Environment**
 
 Tested with Python 3.10 on Linux.
