@@ -8,10 +8,17 @@ Official PyTorch implementation
 >
 > <a href='https://arxiv.org/abs/2403.10942'><img src='https://img.shields.io/badge/arXiv-refs-red'></a> <a href='https://tbesnier.github.io/projects/scantalk/'><img src='https://img.shields.io/badge/Project-Page-Green'></a>
 
-<div style="display: flex; justify-content: center;">
-  	<img src="https://github.com/tbesnier/ScanTalk/blob/main/gifs/scan.gif" alt="animated_scan" style="width:25%; margin-right: 10px;">
-  	<img src="https://github.com/tbesnier/ScanTalk/blob/main/gifs/arnold.gif" alt="animated_arnold" style="width:25%;">
-</div>
+<!--<div style="display: flex; justify-content: center;">
+  	<img src="./gifs/scan.gif" alt="animated_scan" style="width:25%; margin-right: 10px;">
+  	<img src="./gifs/arnold.gif" alt="animated_arnold" style="width:25%;">
+</div>-->
+
+<table>
+<tr>
+<td><img src="./gifs/scan.gif" height="200" /></td><td><img src="./gifs/arnold.gif" height="200" />
+</tr>
+<tr>
+</table>
 
 
 ## **Environment**
