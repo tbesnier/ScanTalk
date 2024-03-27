@@ -13,13 +13,14 @@ Official PyTorch implementation
   	<img src="./gifs/arnold.gif" alt="animated_arnold" style="width:25%;">
 </div>-->
 
+<center>
 <table>
 <tr>
 <td><img src="./gifs/scan.gif" height="200" /></td><td><img src="./gifs/arnold.gif" height="200" />
 </tr>
 <tr>
 </table>
-
+</center>
 
 ## **Environment**
 
