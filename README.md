@@ -6,11 +6,12 @@ Official PyTorch implementation
 >
 > Federico Nocentini<span>&#42;</span>,  Thomas Besnier<span>&#42;</span>, Claudio Ferrari, Sylvain Arguillère, Stefano Berretti, Mohamed Daoudi
 >
-> <a ><img src='https://img.shields.io/badge/arXiv-refs-red'></a> <a href='https://tbesnier.github.io/projects/scantalk/'><img src='https://img.shields.io/badge/Project-Page-Green'></a>
+> <a href='https://arxiv.org/abs/2403.10942'><img src='https://img.shields.io/badge/arXiv-refs-red'></a> <a href='https://tbesnier.github.io/projects/scantalk/'><img src='https://img.shields.io/badge/Project-Page-Green'></a>
 
-<video width="320" height="240" controls>
-      <source src="https://github.com/tbesnier/ScanTalk/data/videos/demo.mp4" type=video/mp4>
-</video>
+<p align="center">
+  <img src="https://github.com/tbesnier/ScanTalk/blob/main/gifs/scan.gif" alt="animated_scan" style="width:45%"/>
+  <img src="https://github.com/tbesnier/ScanTalk/blob/main/gifs/arnold.gif" alt="animated_arnold" style="width:45%"/>
+</p>
 
 ## **Environment**
 
@@ -41,6 +42,15 @@ Be aware that the upper and lower lips need to be clearly separated
 ## **Testing**
 
 ## **Citation**
+	@misc{nocentini2024scantalk,
+      title={ScanTalk: 3D Talking Heads from Unregistered Scans}, 
+      author={Federico Nocentini and Thomas Besnier and Claudio Ferrari and Sylvain Arguillere and Stefano Berretti and Mohamed Daoudi},
+      year={2024},
+      eprint={2403.10942},
+      archivePrefix={arXiv},
+      primaryClass={cs.CV}
+    }
+Please, cite this paper if you use it in your own work.
 
 ## **Acknowledgement**
 This code highly rely on previous work such as DiffusionNet (https://github.com/nmwsharp/diffusion-net) and FaceDiffuser (https://github.com/uuembodiedsocialai/FaceDiffuser).
