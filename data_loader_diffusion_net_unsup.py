@@ -36,9 +36,10 @@ class Dataset(data.Dataset):
         evecs = self.data[index]["evecs"]
         gradX = self.data[index]["gradX"]
         gradY = self.data[index]["gradY"]
-        faces = self.data[index]["faces"]
+        faces_template = self.data[index]["faces_template"]
+        #faces = self.data[index]["faces"]
         dataset = self.data[index]["dataset"]
-        return torch.FloatTensor(audio), torch.FloatTensor(vertices), torch.FloatTensor(template), torch.FloatTensor(np.array(mass)).float(), L.float(), torch.FloatTensor(np.array(evals)), torch.FloatTensor(np.array(evecs)), gradX.float(), gradY.float(), file_name, faces.float(), dataset
+        return torch.FloatTensor(audio), torch.FloatTensor(vertices), torch.FloatTensor(template), torch.FloatTensor(np.array(mass)).float(), L.float(), torch.FloatTensor(np.array(evals)), torch.FloatTensor(np.array(evecs)), gradX.float(), gradY.float(), file_name, faces_template.float(), dataset
 
     def __len__(self):
         return self.len
@@ -53,20 +54,15 @@ def read_data(args):
 
     audio_path = args.wav_path
     vertices_path = args.vertices_path
+    #faces_path = args.faces_path
     processor = Wav2Vec2Processor.from_pretrained("facebook/hubert-xlarge-ls960-ft")
 
-    if args.dataset == "vocaset":
-        reference = trimesh.load('./template/flame_model/FLAME_sample.ply',
-                                 process=False)
-        template_tri = reference.faces
-        template_file = args.template_file
-        with open(template_file, 'rb') as fin:
-            templates = pickle.load(fin, encoding='latin1')
-
-    elif args.dataset == "BIWI":
-        reference = trimesh.load('../datasets/BIWI/data/templates/F1.obj',
-                                 process=False)
-        template_tri = reference.faces
+    #reference = trimesh.load('./template/flame_model/FLAME_sample.ply',
+    #                         process=False)
+    #template_tri = reference.faces
+    #template_file = args.template_file
+    #with open(template_file, 'rb') as fin:
+    #    templates = pickle.load(fin, encoding='latin1')
 
     subject_id_list = []
     mass_dict = {}
@@ -75,6 +71,11 @@ def read_data(args):
     evecs_dict = {}
     gradX_dict = {}
     gradY_dict = {}
+
+    subjects_dict = {}
+    subjects_dict["train"] = [i for i in args.train_subjects.split(" ")]
+    subjects_dict["val"] = [i for i in args.val_subjects.split(" ")]
+    subjects_dict["test"] = [i for i in args.test_subjects.split(" ")]
     for r, ds, fs in os.walk(audio_path):
         for f in tqdm(fs):
             if f.endswith("wav"):# and f[3] != 'e':
@@ -85,27 +86,19 @@ def read_data(args):
                 data[key]["audio"] = audio_feature
                 data[key]["name"] = f
 
-                if args.dataset == "vocaset":
-                    subject_id = "_".join(key.split("_")[:-1])
-                    temp = templates[subject_id]
-                    data[key]["template"] = temp
-
-                elif args.dataset == "BIWI":
-                    subject_id = key.split("_")[0]
-                    temp = trimesh.load(os.path.join(args.template_file, subject_id + '.obj'), process=False).vertices
-                    data[key]["template"] = temp
-
-                elif args.dataset == "multiface":
-                    subject_id = key.split("_")[0]
-                    temp = trimesh.load(os.path.join(args.template_file, subject_id + '.ply'), process=False).vertices
-                    data[key]["template"] = temp
-
+                subject_id = "_".join(key.split("_")[:-1])
+                #if subject_id in subjects_dict["train"] or subject_id in subjects_dict["val"] or subject_id in subjects_dict["test"]:
+                template_mesh = trimesh.load(os.path.join(args.template_dir, subject_id + '.ply'), process=False)
+                temp = template_mesh.vertices
+                data[key]["template"] = temp
+                #temp = templates[subject_id]
+                #data[key]["template"] = temp
                 vertices_path_ = os.path.join(vertices_path, f.replace("wav", "npy"))
-
+                #faces_path_ = os.path.join(faces_path, f.replace("wav", "npy"))
                 if subject_id not in subject_id_list:
                     subject_id_list.append(subject_id)
                     frame, mass, L, evals, evecs, gradX, gradY = diffusion_net.geometry.compute_operators(
-                        torch.tensor(temp), faces=torch.tensor(template_tri), k_eig=args.k_eig)
+                        torch.tensor(temp), faces=torch.tensor(template_mesh.faces), k_eig=args.k_eig)
                     mass_dict[subject_id] = mass
                     L_dict[subject_id] = L
                     evals_dict[subject_id] = evals
@@ -119,24 +112,18 @@ def read_data(args):
                 data[key]["evecs"] = evecs_dict[subject_id]
                 data[key]["gradX"] = gradX_dict[subject_id]
                 data[key]["gradY"] = gradY_dict[subject_id]
-                data[key]["faces"] = torch.tensor(template_tri)
+                data[key]["faces_template"] = torch.tensor(template_mesh.faces)
                 data[key]["dataset"] = "vocaset"
 
                 if not os.path.exists(vertices_path_):
                     del data[key]
                 else:
-                    if args.dataset == "vocaset":
-                        vertices = np.load(vertices_path_, allow_pickle=True)[::2, :]
-                        data[key]["vertices"] = np.reshape(vertices, (vertices.shape[0], 5023, 3))
-                    elif args.dataset == "BIWI" or args.dataset == "multiface":
-                        # vertices = np.load(vertices_path_, allow_pickle=True)
-                        data[key]["vertices"] = np.load(vertices_path_, allow_pickle=True)
-
-
-    subjects_dict = {}
-    subjects_dict["train"] = [i for i in args.train_subjects.split(" ")]
-    subjects_dict["val"] = [i for i in args.val_subjects.split(" ")]
-    subjects_dict["test"] = [i for i in args.test_subjects.split(" ")]
+                    vertices = np.load(vertices_path_, allow_pickle=True)[::2, :, :]
+                    #print(vertices.shape)
+                    data[key]["vertices"] = vertices #np.reshape(vertices, (vertices.shape[0], vertices.shape[1]//3, 3))
+                    #data[key]["vertices"] = vertices
+                    #faces = np.load(faces_path_, allow_pickle=True)[::2, :]
+                    #data[key]["faces"] = np.reshape(faces, (faces.shape[0], faces.shape[1]//3, 3))
 
     for k, v in data.items():
         subject_id = "_".join(k.split("_")[:-1])

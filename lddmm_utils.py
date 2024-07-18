@@ -190,18 +190,46 @@ def get_center_length_normal(F, V):
     centers, normals = (V0 + V1 + V2) / 3, 0.5 * torch.cross(V1 - V0, V2 - V0)
     length = (normals ** 2).sum(dim=1)[:, None].clamp_(min=1e-10).sqrt()
     return centers, length, normals / (length)
+
+
+def get_center_length_normal_batch(F, V):
+
+    B = V.shape[0]
+    for i in range(B):
+        V0, V1, V2 = (
+            V[i].index_select(0, F[i][:, 0]),
+            V[i].index_select(0, F[i][:, 1]),
+            V[i].index_select(0, F[i][:, 2]),
+        )
+        centers, normals = (V0 + V1 + V2) / 3, 0.5 * torch.cross(V1 - V0, V2 - V0)
+        length = (normals**2).sum(dim=1)[:, None].clamp_(min=1e-10).sqrt()
+        if i == 0:
+            C, Nn, L = centers.unsqueeze(0), normals.unsqueeze(0)/length, length.unsqueeze(0)
+        else:
+            centers, normals, length = torch.cat((C, centers.unsqueeze(0)), dim=0), torch.cat((Nn, normals.unsqueeze(0)/length), dim=0), torch.cat((L, length.unsqueeze(0)), dim=0)
+
+    return centers, length, normals
+
+
 def lossVarifoldSurf(FS, VT, FT, K):
-    """Compute varifold distance between two meshes
-    Input:
-        - FS: face connectivity of source mesh
-        - VT: vertices of target mesh [nVx3 torch tensor]
-        - FT: face connectivity of target mesh [nFx3 torch tensor]
-        - K: kernel
-    Output:
-        - loss: function taking VS (vertices coordinates of source mesh)
-    """
 
     CT, LT, NTn = get_center_length_normal(FT, VT)
+
+    cst = (LT * K(CT, CT, NTn, NTn, LT)).sum()
+
+    def loss(VS):
+        CS, LS, NSn = get_center_length_normal(FS, VS)
+        return (
+                cst
+                + (LS * K(CS, CS, NSn, NSn, LS)).sum()
+                - 2 * (LS * K(CS, CT, NSn, NTn, LT)).sum()
+        )
+
+    return loss
+
+def lossVarifoldSurf_batch(FS, VT, FT, K):
+
+    CT, LT, NTn = get_center_length_normal_batch(FT, VT)
 
     cst = (LT * K(CT, CT, NTn, NTn, LT)).sum()
 

@@ -1,6 +1,8 @@
 import torch
 import torch.nn as nn
 from wav2vec import Wav2Vec2Model
+#from hubert.modeling_hubert import HubertModel
+from MDS_viz import WavLMModel
 import sys
 
 sys.path.append('./')
@@ -13,13 +15,13 @@ def count_parameters(model):
 
 
 class DiffusionNetAutoencoder(nn.Module):
-    def __init__(self, in_channels, latent_channels, dataset, audio_latent):
+    def __init__(self, in_channels, latent_channels, dataset):
         super(DiffusionNetAutoencoder, self).__init__()
         self.in_channels = in_channels
         self.latent_channels = latent_channels
         self.dataset = dataset
 
-        self.audio_encoder = Wav2Vec2Model.from_pretrained("facebook/wav2vec2-base-960h")  ###Wav2Vec2
+        self.audio_encoder = WavLMModel.from_pretrained("patrickvonplaten/wavlm-libri-clean-100h-base-plus")  ###Wav2Vec2
         self.audio_encoder.feature_extractor._freeze_parameters()
         self.audio_dim = self.audio_encoder.encoder.config.hidden_size
         # encoder
@@ -76,12 +78,3 @@ class DiffusionNetAutoencoder(nn.Module):
             pred = pred_points + actor
             pred_sequence = torch.vstack([pred_sequence, pred])
         return pred_sequence[1:, :, :]
-
-    def get_latent_features(self, audio, actor, mass, L, evals, evecs, gradX, gradY, faces):
-        hidden_states = self.audio_encoder(audio, dataset=self.dataset).last_hidden_state
-        audio_emb = self.audio_embedding(hidden_states)
-        actor_vertices_emb = self.encoder(actor, mass=mass, L=L, evals=evals, evecs=evecs, gradX=gradX, gradY=gradY,
-                                          faces=faces)
-        latent, _ = self.lstm(audio_emb)
-
-        return actor_vertices_emb, latent

@@ -51,7 +51,8 @@ def read_data(args):
     vertices_path = args.vertices_path
     if face:
         faces_path = args.faces_path
-    processor = Wav2Vec2Processor.from_pretrained("facebook/wav2vec2-base-960h")
+    #processor = Wav2Vec2Processor.from_pretrained("facebook/wav2vec2-base-960h")
+    processor = Wav2Vec2Processor.from_pretrained("facebook/hubert-xlarge-ls960-ft")
 
     template_file = args.template_file
     with open(template_file, 'rb') as fin:

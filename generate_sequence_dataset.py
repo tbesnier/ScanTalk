@@ -3,7 +3,7 @@ from transformers import AutoProcessor
 import librosa
 import os
 import torch
-from wavlm import WavLMModel
+from MDS_viz import WavLMModel
 from transformers import Wav2Vec2Processor
 from wav2vec import Wav2Vec2Model
 import pickle

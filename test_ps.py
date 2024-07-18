@@ -2,11 +2,7 @@ import polyscope as ps
 import polyscope.imgui as psim
 import trimesh as tri
 import numpy as np
-import os, time
-#from vedo import *
-#from vedo import dataurl, Plotter, Mesh, Video
-#import vedo
-#vedo.settings.default_backend= 'vtk'
+import os
 
 ui_int = 0
 colors = [
@@ -38,14 +34,15 @@ def register_surface(name, mesh, x=0.0, y=0.0, z=0.0, idx_color=0, transparency=
                                  color=tuple(int(colors[-1][i:i + 2], 16) / 255.0 for i in (1, 3, 5)), vectortype="ambient")
 
     if disp_heatmap is not None:
-        mesh.add_scalar_quantity('relative error heatmap', disp_heatmap, enabled=True, cmap='reds', vminmax=(0.052, 0.06))
+        min_bound, max_bound = disp_heatmap.min(), disp_heatmap.max() #0, 0.01 #0, 0.0085  # disp_heatmap.min(), disp_heatmap.max()
+        mesh.add_scalar_quantity('relative error heatmap', disp_heatmap, enabled=True, cmap='pink-green', vminmax=(min_bound, max_bound))
 
     return mesh
 
 # Define our callback function, which Polyscope will repeatedly execute while running the UI.
 def callback():
 
-    global ui_int, meshes, meshes_gt, disp_vectors_gt
+    global ui_int, meshes, meshes_gt, meshes_facediffuser, meshes_faceformer, heatmap, disp_vectors, disp_vectors_facediffusers, disp_vectors_faceformer
 
     # == Settings
 
@@ -62,59 +59,77 @@ def callback():
     changed, ui_int = psim.SliderInt("Frame", ui_int, v_min=0, v_max=len(meshes)-2)
     if changed:
         ps.remove_all_structures()
-        register_surface(name=f'Frame {ui_int}', mesh=meshes[ui_int], disp_vectors=disp_vectors[ui_int])
+        #register_surface(name=f'Frame {ui_int} Ours', x=0.5, mesh=meshes[ui_int],
+        #                 disp_vectors=disp_vectors[ui_int])
+        # register_surface(name=f'Frame {ui_int} FaceDiffuser', idx_color=0, mesh=meshes_facediffuser[ui_int],
+        #                  disp_vectors=disp_vectors_facediffuser[ui_int])
+        # register_surface(name=f'Frame {ui_int} Faceformer', x=0.25, idx_color=0, mesh=meshes_faceformer[ui_int],
+        #                  disp_vectors=disp_vectors_faceformer[ui_int])
+
         if meshes_gt is not None:
-            register_surface(name=f'Frame GT {ui_int}', x=0.25, y=-0.02, z=-0.05, idx_color=1, mesh=meshes_gt[ui_int],
-                         disp_vectors = disp_vectors_gt[ui_int], disp_heatmap=None)  #error_heatmap[ui_int])
+            register_surface(name=f'Disp GT {ui_int}', x=-0., y=-0., z=0., idx_color=1, mesh=meshes_gt[0],
+                         disp_vectors=None, disp_heatmap=error_heatmap[ui_int])  #error_heatmap[ui_int])
+            # register_surface(name=f'GT {ui_int}', x=-0.25, y=-0., z=0., idx_color=0, mesh=meshes_gt[ui_int],
+            #                  disp_vectors=None, disp_heatmap=None)  # error_heatmap[ui_int])
 
 
 if __name__ == '__main__':
     GT = False
-    render_vid = False
 
-    meshes_dir = '../Data/VOCA/res/Results_Actor/Meshes_infer'
+    meshes_dir = '../Data/VOCA/res/Results_Actor/Meshes_infer' #'../datasets/VOCA/FaceTalk_170809_00138_TA/sentence01' #"../../papers/ScanTalk/meshes_results_scans/Meshes_FaceTalk_170731_00024_TA" #'../Data/VOCA/res/meshing_robustness/UPDOWN/Meshes_infer'  #'../Data/VOCA/res/Results_Actor/Meshes_infer'
     l_mesh_dir = len(os.listdir(meshes_dir))
-    meshes = [tri.load(os.path.join(meshes_dir, 'frame_' + str(i).zfill(3) + '.ply')) for i in range(0, l_mesh_dir)]
-    disp_vectors = np.array([meshes[i + 1].vertices - meshes[i].vertices for i in range(len(meshes) - 1)])
+    meshes = [tri.load(os.path.join(meshes_dir, 'frame_' + str(i+1).zfill(3) + '.ply')) for i in range(0, l_mesh_dir - 1)]
+    #disp_vectors = np.array([meshes[i + 1].vertices - meshes[i].vertices for i in range(len(meshes) -1)])
 
     meshes_gt=None
     if GT:
-        meshes_gt_dir = '../datasets/VOCA/FaceTalk_170725_00137_TA/sentence01'
+        meshes_gt_dir = "../datasets/VOCA/FaceTalk_170809_00138_TA/sentence01" #'../Data/VOCA/Targets_voca_meshes/FaceTalk_170731_00024_TA_sentence01' #'../datasets/VOCA/FaceTalk_170725_00137_TA/sentence01'
         l_mesh_gt_dir = len(os.listdir(meshes_gt_dir))
-        meshes_gt = [tri.load(os.path.join(meshes_gt_dir, 'sentence01.' + str(i).zfill(6) +'.ply')) for i in range(1, l_mesh_gt_dir)]
-        disp_vectors_gt = np.array([meshes_gt[i+1].vertices - meshes_gt[i].vertices for i in range(len(meshes_gt) - 1)])
-        error_heatmap = np.array([np.linalg.norm(meshes_gt[i+1].vertices - meshes[i].vertices, axis=1) for i in range(len(meshes_gt) - 1)])
+        meshes_gt = [tri.load(os.path.join(meshes_gt_dir, 'sentence01.' + str(i+1).zfill(6) + '.ply')) for i in range(0, l_mesh_gt_dir)]
+        #disp_vectors_gt = np.array([meshes_gt[i+1].vertices - meshes_gt[i].vertices for i in range(len(meshes_gt) -1)])
+
+    #end = min(l_mesh_dir, l_mesh_gt_dir)
+    #error_heatmap = np.array([np.linalg.norm(meshes_gt[i].vertices - meshes_gt[0].vertices, axis=1) for i in range(end)])
+
+    # meshes_dir_facediffuser = "../../papers/ScanTalk/meshes_results_scans/Meshes_FaceTalk_170811_03274_TA"  # '../Data/VOCA/res/meshing_robustness/UPDOWN/Meshes_infer'  #'../Data/VOCA/res/Results_Actor/Meshes_infer'
+    # l_mesh_dir_facediffuser = len(os.listdir(meshes_dir_facediffuser))
+    # meshes_facediffuser = [tri.load(os.path.join(meshes_dir_facediffuser, 'tst' + str(i + 1).zfill(3) + '.ply')) for i in
+    #           range(0, l_mesh_dir_facediffuser - 1)]
+    # disp_vectors_facediffuser = np.array([meshes_facediffuser[i + 1].vertices - meshes_facediffuser[i].vertices for i in range(len(meshes_facediffuser) -1)])
+    #
+    #
+    # meshes_dir_faceformer = "../../papers/ScanTalk/meshes_results_scans/Meshes_FaceTalk_170913_03279_TA"  # '../Data/VOCA/res/meshing_robustness/UPDOWN/Meshes_infer'  #'../Data/VOCA/res/Results_Actor/Meshes_infer'
+    # l_mesh_dir_faceformer = len(os.listdir(meshes_dir_faceformer))
+    # meshes_faceformer = [tri.load(os.path.join(meshes_dir_faceformer, 'tst' + str(i + 1).zfill(3) + '.ply')) for i in
+    #           range(0, l_mesh_dir_faceformer - 1)]
+    # disp_vectors_faceformer = np.array([meshes_faceformer[i + 1].vertices - meshes_faceformer[i].vertices for i in range(len(meshes_faceformer) -1)])
 
     ps.init()
     ps.set_up_dir("y_up")
-    ps.set_ground_plane_mode("shadow_only")
+    ps.set_ground_plane_mode("none")
     ps.set_ground_plane_height_factor(0)
-    register_surface(name=f'Frame {0}', mesh=meshes[ui_int], disp_vectors=disp_vectors[0])
+    heatmap = np.load("../Data/VOCA/res/Results_Actor/viz_learned_features/actor_vertices_emb.npy")[0]
+    #pca = PCA()
+    #pca.fit(heatmap)
+    heatmap = np.linalg.norm(heatmap, axis=1)
+    #print(heatmap.max(), heatmap.min())
+
+    register_surface(name=f'Frame {0} Ours', mesh=meshes[ui_int], disp_vectors=None,
+                     disp_heatmap=heatmap)
+    # register_surface(name=f'Disp 2', x=0.25, y=-0., z=0., idx_color=2, mesh=meshes[ui_int],
+    #                  disp_vectors=None, disp_heatmap=heatmap[:, 1])
+    # register_surface(name=f'Disp 3', x=0.5, y=-0., z=0., idx_color=3, mesh=meshes[ui_int],
+    #                  disp_vectors=None, disp_heatmap=heatmap[:, 2])
+    # register_surface(name=f'Frame {0} FaceDiffuser', idx_color=0, mesh=meshes_facediffuser[ui_int],
+    #                  disp_vectors=disp_vectors_facediffuser[ui_int], disp_heatmap=None)
+    # register_surface(name=f'Frame {0} FaceFormer', x=0.25, y=-0., z=0., idx_color=0, mesh=meshes_faceformer[ui_int],
+    #                  disp_vectors=disp_vectors_faceformer[ui_int], disp_heatmap=None)
+
     if GT:
-        register_surface(name=f'Frame GT {0}', x=0.25, y=-0.02, z=-0.05, idx_color=1, mesh=meshes_gt[ui_int],
-                         disp_vectors = disp_vectors_gt[0], disp_heatmap=None) #error_heatmap[0])
+        register_surface(name=f'Disp GT {0}', x=0., y=-0., z=0., idx_color=1, mesh=meshes_gt[ui_int],
+                         disp_vectors=None, disp_heatmap=heatmap[:, 0]) #error_heatmap[0])
+
+        # register_surface(name=f'GT {ui_int}', x=-0.25, y=-0., z=0., idx_color=0, mesh=meshes_gt[ui_int],
+        #                  disp_vectors=None, disp_heatmap=None)  # error_heatmap[ui_int])
     ps.set_user_callback(callback)
     ps.show()
-
-    if render_vid:
-        folder = "../"
-        l = 1
-        axes = Axes(xrange=(-l, l), yrange=(-l, l), zrange=(-l, l),
-                    xygrid=False, yzgrid=False, zxgrid=False,
-                    xygrid_transparent=True, yzgrid_transparent=True, zxgrid_transparent=True)
-        # declare the class instance
-        # target_face = Mesh(os.path.join(folder, L[0]))
-        plt = Plotter(bg='white', axes=0, offscreen=False, interactive=0)
-        plt.show(axes)
-        video = Video(folder + "anim.mp4", duration=4, backend='ffmpeg')  # backend='opencv'
-
-        for i, elt in enumerate(meshes_dir):
-            face = Mesh(os.path.join(folder + "interp/", elt), c='Purple7')
-            plt.add(face)
-            plt.render()
-            video.add_frame()
-            plt.remove(face)
-
-        video.close()  # merge all the recorded frames
-
-        plt.interactive().close()

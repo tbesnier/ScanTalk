@@ -6,8 +6,8 @@ import torch
 import torch.nn as nn
 import argparse
 from tqdm import tqdm
-from model.model_semi_registered import PointNet2SpiralsAutoEncoder
-from model.model_registered import SpiralAutoencoder
+#from model.model_semi_registered import PointNet2SpiralsAutoEncoder
+from model.model_registered_hubert import SpiralAutoencoder
 import librosa
 from transformers import Wav2Vec2Processor
 from psbody.mesh import Mesh
@@ -24,8 +24,6 @@ from pytorch3d.loss import(
 
 from pytorch3d.structures import Meshes
 import lddmm_utils
-
-scaler = torch.cuda.amp.GradScaler()
 
 faces = torch.tensor(np.array(trimesh.load('./template/flame_model/FLAME_sample.ply').faces)).to(
             device='cuda:0', dtype=torch.int32)
@@ -57,9 +55,9 @@ class Chamfer_Loss(nn.Module):
             device=args.device, dtype=torch.int32)
         self.device = args.device
         self.faces = faces.to(self.device)
-        self.w_edge_loss = 5e-5
-        self.w_laplacian_loss = 0.0
-        self.w_normal_loss = 1e-4
+        self.w_edge_loss = 0.1
+        self.w_laplacian_loss = 0.01
+        self.w_normal_loss = 0.01
     def forward(self, predictions, targets):
 
         predictions_reg = predictions.unsqueeze(0)
@@ -83,11 +81,11 @@ class Chamfer_Loss(nn.Module):
         targets.reshape(1, targets.shape[0], targets.shape[1] * targets.shape[2])
 
         loss_chamfer, _ = chamfer_distance(predictions, targets)
-        #prediction_shift = predictions[:, 1:, :] - predictions[:, :-1, :]
-        #target_shift = targets[:, 1:, :] - targets[:, :-1, :]
-        #vel_loss = chamfer_distance(prediction_shift, target_shift)[0]
+        prediction_shift = predictions[:, 1:, :] - predictions[:, :-1, :]
+        target_shift = targets[:, 1:, :] - targets[:, :-1, :]
+        vel_loss = chamfer_distance(prediction_shift, target_shift)[0]
 
-        return loss_chamfer + edge_loss + lapl_loss + norm_const_loss# + vel_loss
+        return loss_chamfer + edge_loss + lapl_loss + norm_const_loss + vel_loss
 
 
 class Varifold_loss(nn.Module):
@@ -96,7 +94,7 @@ class Varifold_loss(nn.Module):
         self.device = args.device
         self.faces = faces.to(self.device)
         self.torchdtype = torch.float
-        self.sig = [0.05]
+        self.sig = [0.08, 0.05, 0.02]
         #self.sig_n = torch.tensor([0.5], dtype=self.torchdtype, device=self.device)
         for i, sigma in enumerate(self.sig):
             self.sig[i] = torch.tensor([sigma], dtype=self.torchdtype, device=self.device)
@@ -108,7 +106,7 @@ class Varifold_loss(nn.Module):
             V2, F2 = targets[i], self.faces
 
             for sigma in self.sig:
-                Li += lddmm_utils.lossVarifoldSurf(F1, V2, F2, lddmm_utils.GaussSquaredKernel_varifold_unoriented(
+                Li += (sigma / self.sig[0]) ** 2 *lddmm_utils.lossVarifoldSurf(F1, V2, F2, lddmm_utils.GaussSquaredKernel_varifold_unoriented(
                                                                 sigma=sigma))(V1)
             V1.detach()
             V2.detach()
@@ -131,7 +129,8 @@ def train(args):
     if not os.path.exists(args.result_dir):
         os.makedirs(args.result_dir)
 
-    processor = Wav2Vec2Processor.from_pretrained("facebook/wav2vec2-base-960h")
+    #processor = Wav2Vec2Processor.from_pretrained("facebook/wav2vec2-base-960h")
+    processor = Wav2Vec2Processor.from_pretrained("facebook/hubert-xlarge-ls960-ft")
 
     meshpackage = 'trimesh'
 
@@ -229,17 +228,16 @@ def train(args):
             vertices = sample[1].to(device).squeeze(0)
             #faces = sample[2].to(device).squeeze(0)
             template = sample[2].to(device)
-            with torch.autocast(device_type='cuda', dtype=torch.float16):
-                vertices_pred = d2d.forward(audio, template, vertices)
-                loss = criterion(vertices_pred, vertices)
+
+            vertices_pred = d2d.forward(audio, template, vertices)
+            loss = criterion(vertices_pred, vertices)
 
             #torch.nn.utils.clip_grad_norm_(d2d.parameters(), 10.0)
-            scaler.scale(loss).backward()
-            scaler.step(optim)
+            loss.backward()
+            optim.step()
             tloss += loss.item()
             pbar_talk.set_description(
                 "(Epoch {}) TRAIN LOSS:{:.10f}".format((epoch + 1), tloss / (b + 1)))
-            scaler.update()
 
         if epoch % 10 == 0:
             d2d.eval()
@@ -302,7 +300,7 @@ def train(args):
         torch.save({'epoch': epoch,
                     'autoencoder_state_dict': d2d.state_dict(),
                     'optimizer_state_dict': optim.state_dict(),
-                    }, os.path.join(args.result_dir, 'd2d_ScanTalk_bigger_lstm_masked_velocity_loss.pth.tar'))
+                    }, os.path.join(args.result_dir, 'd2d_ScanTalk_bigger_lstm_masked_velocity_loss_Hubert.pth.tar'))
 
     with torch.no_grad():
         d2d.eval()
@@ -338,7 +336,7 @@ def main():
     parser.add_argument("--training_sample_face", type=str, default="FaceTalk_170725_00137_TA", help='face to animate')
     parser.add_argument("--load_model", type=bool, default=False)
     parser.add_argument("--model_path", type=str,
-                        default='../Data/VOCA/res/Results_Actor/Models/d2d_ScanTalk_new_training_strat_disp.pth.tar')
+                        default='../Data/VOCA/res/Results_Actor/Models/d2d_ScanTalk_bigger_lstm_masked_velocity_loss.pth.tar')
     parser.add_argument("--mask_path", type=str,
                         default='./mouth_region_registered_idx.npy')
     parser.add_argument("--train_subjects", type=str, default="FaceTalk_170728_03272_TA"
@@ -368,9 +366,9 @@ def main():
     ##Spiral++ hyperparameters
     parser.add_argument('--out_channels',
                         nargs='+',
-                        default=[32, 64, 64, 128],  # divided by 2
+                        default=[16, 32, 32, 64],  # divided by 2
                         type=int)
-    parser.add_argument('--latent_channels', type=int, default=64)
+    parser.add_argument('--latent_channels', type=int, default=32)
     parser.add_argument('--in_channels', type=int, default=3)
     parser.add_argument('--seq_length', type=int, default=[9, 9, 9, 9], nargs='+')
     parser.add_argument('--dilation', type=int, default=[1, 1, 1, 1], nargs='+')

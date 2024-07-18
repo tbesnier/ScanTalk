@@ -108,8 +108,8 @@ def mesh_vertex_normals(verts, faces):
     vertex_normals = np.zeros(verts.shape)
     for i in range(3):
         np.add.at(vertex_normals, faces[:, i], face_n)
-
-    vertex_normals = vertex_normals / np.linalg.norm(vertex_normals, axis=-1, keepdims=True)
+    l = np.linalg.norm(vertex_normals, axis=-1, keepdims=True)
+    vertex_normals = vertex_normals / np.clip(l, a_min=1e-10, a_max=None)
 
     return vertex_normals
 
@@ -305,25 +305,25 @@ def compute_operators(verts, faces, k_eig, normals=None):
     device = verts.device
     dtype = verts.dtype
     V = verts.shape[0]
-    is_cloud = True  #faces.numel() == 0
+    is_cloud = False  #faces.numel() == 0
 
     eps = 1e-8
 
     verts_np = toNP(verts).astype(np.float64)
-    #faces_np = toNP(faces)
+    faces_np = toNP(faces)
     frames = build_tangent_frames(verts, faces, normals=normals)
-    #frames_np = toNP(frames)
+    frames_np = toNP(frames)
 
     # Build the scalar Laplacian
     if is_cloud:
         L, M = robust_laplacian.point_cloud_laplacian(verts_np)
         massvec_np = M.diagonal()
-    #else:
-        # L, M = robust_laplacian.mesh_laplacian(verts_np, faces_np)
-        # massvec_np = M.diagonal()
-        #L = pp3d.cotan_laplacian(verts_np, faces_np, denom_eps=1e-10)
-        #massvec_np = pp3d.vertex_areas(verts_np, faces_np)
-        #massvec_np += eps * np.mean(massvec_np)
+    else:
+        #L, M = robust_laplacian.mesh_laplacian(verts_np, faces_np)
+        #massvec_np = M.diagonal()
+        L = pp3d.cotan_laplacian(verts_np, faces_np, denom_eps=1e-10)
+        massvec_np = pp3d.vertex_areas(verts_np, faces_np)
+        massvec_np += eps * np.mean(massvec_np)
 
     if (np.isnan(L.data).any()):
         raise RuntimeError("NaN Laplace matrix")

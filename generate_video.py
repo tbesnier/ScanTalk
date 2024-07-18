@@ -8,6 +8,7 @@ from psbody.mesh import Mesh
 import pyrender
 import trimesh
 import glob
+from scipy.spatial.transform import Rotation as R
 
 os.environ['PYOPENGL_PLATFORM'] = 'egl'
 
@@ -122,7 +123,7 @@ def render_sequence_meshes(audio_path, sequence_vertices, template, out_path, ou
     writer.release()
 
     video_fname = os.path.join(out_path, out_fname)
-    cmd = ('ffmpeg' + ' -i {0} -i {1} -ac 2 -channel_layout stereo -pix_fmt yuv420p -ar 22050 {2}'.format(
+    cmd = ('ffmpeg' + ' -i {0} -i {1} -ac 2 -channel_layout stereo -vcodec libx264 -s 1920x1080 -pix_fmt yuv420p -ar 22050 {2}'.format(
         tmp_video_file.name, audio_path, video_fname)).split()
     call(cmd)
 
@@ -135,11 +136,12 @@ def generate_mesh_video(audio_path, out_path, out_fname, meshes_path_fname, fps,
     f = None
 
     for frame_idx, mesh_fname in enumerate(sequence_fnames):
-        frame = Mesh(filename=mesh_fname)
+        #r = R.from_euler('x', -15, degrees=True)
+        mesh = trimesh.load(mesh_fname)
+        frame = Mesh(v=np.array(mesh.vertices) + np.array([0, 0., 0]), f=mesh.faces)
         sequence_vertices.append(frame.v)
         if f is None:
             f = frame.f
-
     template = Mesh(sequence_vertices[0], f)
     sequence_vertices = np.stack(sequence_vertices)
     render_sequence_meshes(audio_path, sequence_vertices, template, out_path, out_fname, fps,
@@ -151,14 +153,25 @@ def main():
     parser = argparse.ArgumentParser(description='Python file to render a sequence of meshes into a video')
     # Path where you want to save the video
     parser.add_argument("--device", type=str, default="cuda:0")
-    parser.add_argument("--audio_path", type=str, default='../Data/VOCA/res/TH/short_audio.wav', help='audio to animate')
-    parser.add_argument("--meshes_path", type=str, default='../Data/VOCA/res/Results_Actor/Meshes_infer',
+    parser.add_argument("--audio_path", type=str, default='../Data/VOCA/res/TH/photo.wav')#'../Data/VOCA/res/TH/photo.wav') #'../datasets/VOCA_training/wav_test/FaceTalk_170809_00138_TA_sentence01.wav', help='audio to animate')
+    #parser.add_argument("--audio_path", type=str,
+    #                    default='../Data/VOCA/res/TH/photo.wav',
+    #                    help='audio to animate')
+    #parser.add_argument("--audio_path", type=str, default='../Data/multiface/targets_wav_test/20181017_SEN_all_your_wishful_thinking_wont_change_that.wav', help='audio to animate')
+    parser.add_argument("--meshes_path", type=str, default="../Data/VOCA/res/Results_Actor/Meshes_infer",#"../results_multiface/results_scantalk_multiface_meshes/20190521_SEN_its_healthier_to_cook_without_sugar",#"../Data/VOCA/res/Results_Actor/Meshes_infer",#f'../../papers/ScanTalk/res_ICT/meshes/meshes_{str(i).zfill(2)}',
                         help='path for results')
-    parser.add_argument("--flame_template", type=str, default="./template/flame_model/FLAME_sample.ply",
+    #parser.add_argument("--meshes_path", type=str, default='../Data/multiface/TARGETS_multiface_FaceDiffuser_meshes/SEN_all_your_wishful_thinking_wont_change_that',
+    #                    help='path for results')
+    #parser.add_argument("--flame_template", type=str, default="./template/flame_model/FLAME_sample.ply",
+    #                    help='template_path')
+    parser.add_argument("--flame_template", type=str, default='../datasets/VOCA_training/templates/FaceTalk_170809_00138_TA.ply' , #"../datasets/ICT/head_and_neck/00.ply" ,  #'../datasets/VOCA_training/templates/FaceTalk_170809_00138_TA_simulated_scan.ply', #'./template/flame_model/FLAME_sample.ply', #"../datasets/ICT/head_and_neck/00.ply",
                         help='template_path')
-    parser.add_argument("--save_path", type=str, default="../Data/VOCA/res/Results_Actor", help='template_path')
-    parser.add_argument("--video_name", type=str, default="TEST_decoder.mp4", help='name of the rendered video')
-    parser.add_argument("--fps", type=int, default=60, help='frames per second')
+    #parser.add_argument("--flame_template", type=str, default="../Data/multiface/test_template.ply",
+    #                                        help='template_path')
+    #parser.add_argument("--save_path", type=str, default="../Data/VOCA/res/Results_Actor", help='template_path')
+    parser.add_argument("--save_path", type=str, default="../", help='template_path')
+    parser.add_argument("--video_name", type=str, default="feats/test_random.mp4", help='name of the rendered video')
+    parser.add_argument("--fps", type=int, default=50, help='frames per second')
 
     args = parser.parse_args()
 
@@ -176,4 +189,8 @@ def main():
 
 
 if __name__ == '__main__':
+    #for i in range(0,21):
+
+    #for i, elt in enumerate(os.listdir("../Data/videos_scans_us")):
+    #main(meshes_path=f"../Data/videos_scans_us/{elt}", vid_name=f"{elt[:-4]}.mp4")
     main()

@@ -1,91 +1,31 @@
 import numpy as np
 import argparse
-import os, glob
+import os, glob, sys
 import librosa
 import torch
 import trimesh as tri
-import pickle
-
+from aitviewer.renderables.meshes import Meshes
+import trimesh
+from aitviewer.viewer import Viewer
 from transformers import Wav2Vec2Processor
-from wav2vec import Wav2Vec2Model
+from model.scantalk_hubert import DiffusionNetAutoencoder
 
-from model.model_semi_registered import PointNet2NJFAutoEncoder
-from psbody.mesh import Mesh
-from utils import utils, mesh_sampling
-import shape_data
-
+sys.path.append('./model/diffusion-net/src')
+import model.diffusion_net as diffusion_net
 
 def infer(args):
-
     os.makedirs(args.result_dir, exist_ok=True)
     for f in glob.glob(args.result_dir + "/*"):
         os.remove(f)
 
-    audio_encoder = Wav2Vec2Model.from_pretrained("facebook/wav2vec2-base-960h")
-    processor = Wav2Vec2Processor.from_pretrained("facebook/wav2vec2-base-960h")
-
-    shapedata = shape_data.ShapeData(nVal=100,
-                                     reference_mesh_file=args.reference_mesh_file,
-                                     normalization=False,
-                                     meshpackage='trimesh', load_flag=False)
-
-    shapedata.n_vertex = 5023
-    shapedata.n_features = 3
-
     reference = tri.load(args.reference_mesh_file, process=False)
     template_tri = reference.faces
-    template_vertices = torch.FloatTensor(reference.vertices).unsqueeze(0)
+    template_vertices = torch.FloatTensor(np.array(reference.vertices) + np.array([0, 0, 0]))
     template_vertices = template_vertices.to(device=args.device)
 
-    # generate/load transform matrices
-    transform_fp = './template/template/transform.pkl'
-    template_fp = args.reference_mesh_file
-    if not os.path.exists(transform_fp):
-        print('Generating transform matrices...')
-        mesh = Mesh(filename=template_fp)
-        ds_factors = [4, 4, 4, 4]
-        _, A, D, U, F, V = mesh_sampling.generate_transform_matrices(
-            mesh, ds_factors)
-        tmp = {
-            'vertices': V,
-            'face': F,
-            'adj': A,
-            'down_transform': D,
-            'up_transform': U
-        }
-        print(tmp)
+    processor = Wav2Vec2Processor.from_pretrained("facebook/hubert-xlarge-ls960-ft")
 
-        with open(transform_fp, 'wb') as fp:
-            pickle.dump(tmp, fp)
-        print('Done!')
-        print('Transform matrices are saved in \'{}\''.format(transform_fp))
-    else:
-        with open(transform_fp, 'rb') as f:
-            tmp = pickle.load(f, encoding='latin1')
-
-    spiral_indices_list = [
-        utils.preprocess_spiral(tmp['face'][idx], args.seq_length[idx],
-                                tmp['vertices'][idx],
-                                args.dilation[idx]).to(args.device)
-        for idx in range(len(tmp['face']) - 1)
-    ]
-    down_transform_list = [
-        utils.to_sparse(down_transform).to(args.device)
-        for down_transform in tmp['down_transform']
-    ]
-    up_transform_list = [
-        utils.to_sparse(up_transform).to(args.device)
-        for up_transform in tmp['up_transform']
-    ]
-
-    #model = SpiralAutoencoder(args.in_channels, args.out_channels, args.latent_channels,
-     #                 spiral_indices_list, down_transform_list,
-     #                 up_transform_list).to(args.device)
-
-    #model = PointNet2SpiralsAutoEncoder(args.latent_channels, args.in_channels, args.out_channels,
-    #                            spiral_indices_list, down_transform_list, up_transform_list).to(args.device)
-
-    model = PointNet2NJFAutoEncoder(latent_channels=args.latent_channels, point_dim=3, device=args.device).to(args.device)
+    model = DiffusionNetAutoencoder(args.in_channels, args.in_channels, args.latent_channels, args.device).to(args.device)
 
     checkpoint_dict = torch.load(os.path.join(args.model_path), map_location=args.device)
     model.load_state_dict(checkpoint_dict['autoencoder_state_dict'])
@@ -97,46 +37,95 @@ def infer(args):
         audio_feature = np.squeeze(processor(speech_array, sampling_rate=sampling_rate).input_values)
         audio_feature = np.reshape(audio_feature, (-1, audio_feature.shape[0]))
         audio_feature = torch.FloatTensor(audio_feature).to(args.device)
-        #hidden_states = audio_encoder(audio_feature).last_hidden_state.to(args.device)
 
-        #gen_seq = model.predict_new(hidden_states, template_vertices)
-        gen_seq = model.predict(audio_feature, template_vertices.float())
+        frames, mass, L, evals, evecs, gradX, gradY = diffusion_net.geometry.compute_operators(
+            template_vertices.to('cpu'), faces=torch.tensor(template_tri), k_eig=128)
+        #np.save("../Data/VOCA/res/eig.npy", evecs.detach().cpu().numpy())
+        mass = torch.FloatTensor(np.array(mass)).float().to(args.device).unsqueeze(0)
+        evals = torch.FloatTensor(np.array(evals)).to(args.device).unsqueeze(0)
+        evecs = torch.FloatTensor(np.array(evecs)).to(args.device).unsqueeze(0)
+        L = L.float().to(args.device).unsqueeze(0)
+        gradX = gradX.float().to(args.device).unsqueeze(0)
+        gradY = gradY.float().to(args.device).unsqueeze(0)
+        faces = torch.tensor(template_tri).to(args.device).float().unsqueeze(0)
+
+        gen_seq = model.predict(audio_feature, template_vertices.to(args.device).unsqueeze(0), mass, L, evals, evecs,
+                              gradX, gradY, faces)#, dataset='vocaset')
         gen_seq = gen_seq.cpu().detach().numpy()
+
+        latent = model.get_latent_features(audio_feature, template_vertices.to(args.device).unsqueeze(0), mass, L, evals, evecs,
+                              gradX, gradY, faces)
+
+        np.save("../Data/scantalk_extension/latent_trajectories/VOCA_remeshed.npy", latent.detach().cpu().numpy())
 
         for m in range(len(gen_seq)):
             mesh = tri.Trimesh(gen_seq[m], template_tri)
-            mesh.export('../Data/VOCA/res/Results_Actor/Meshes_infer/' + '/frame_' + str(m).zfill(3) + '.ply')
-            #if m<len(gen_seq) - 1:
-            #    displacements = gen_seq[m+1] - gen_seq[m]
-            #    np.save(file=args.result_dir + '/frame_' + str(m).zfill(3) + '.npy', arr=displacements)
-            #else:
-            #    np.save(file=args.result_dir + '/frame_' + str(m).zfill(3) + '.npy', arr=np.zeros((displacements.shape)))
+            mesh.export(args.result_dir + '/frame_' + str(m).zfill(3) + '.ply')
+
+
+def render(args):
+    colors = [
+        '#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', '#8c564b', '#e377c2', '#7f7f7f', '#bcbd22', '#17becf',
+        'burlywood', 'cadetblue',
+        'chartreuse', 'chocolate', 'coral', 'cornflowerblue',
+        'cornsilk', 'crimson', 'cyan', 'darkblue',
+        'darkgoldenrod', 'darkgray', 'darkgrey', 'darkgreen',
+        'darkkhaki', 'darkmagenta', 'darkolivegreen', 'darkorange',
+        'darkorchid', 'darkred', 'darksalmon', 'darkseagreen',
+        'darkslateblue', 'darkslategray', 'darkslategrey',
+        'darkturquoise', 'darkviolet', 'deeppink', 'deepskyblue',
+        'dimgray', 'dimgrey', 'dodgerblue', '#000000'
+    ]
+
+    meshes_dir = '../Data/scantalk_extension/inference_exp' #'../Data/LISC/results_dual_MANO/MANO_anim'
+    mesh_list = [os.path.join(meshes_dir, os.listdir(meshes_dir)[i]) for i in range(len(os.listdir(meshes_dir)))]
+    mesh_list.sort()
+
+    # Number of frames.
+    N = len(mesh_list)
+
+    vertices = np.array([trimesh.load(mesh_list[i]).vertices for i in range(N)])
+
+    seq = Meshes(
+        vertices,
+        trimesh.load(mesh_list[0]).faces,
+        name="Prediction",
+        position=[0, 0, 0],
+        flat_shading=False
+    )
+
+    viewer = Viewer()
+    viewer.scene.add(seq)
+
+    viewer.auto_set_camera_target = True
+    seq.norm_coloring = True
+
+    viewer.scene.origin.enabled = False
+    viewer.playback_fps = 30
+
+    viewer.run_animations = True
+    viewer.run()
 
 
 def main():
     parser = argparse.ArgumentParser(description='Infer ScanTalk on a mesh file with an audio file and visualize what happens during inference')
-    parser.add_argument("--device", type=str, default="cuda:1")
-    parser.add_argument("--result_dir", type=str, default='../Data/VOCA/res/Results_Actor/Meshes_infer/')
-    parser.add_argument("--reference_mesh_file", type=str, default='./template/flame_model/FLAME_sample.ply',
-                        help='path of the template')
-    parser.add_argument("--sample_audio", type=str, default='../Data/VOCA/res/TH/short_audio.wav')
-    parser.add_argument("--template_file", type=str, default="../datasets/VOCA_training/templates.pkl",
-                        help='faces to animate')
-    parser.add_argument("--model_path", type=str, default='../Data/VOCA/res/Results_Actor/Models/d2d_ScanTalk_bigger_lstm_masked_velocity_loss.pth.tar')
-
-    ##Spiral++ hyperparameters
-    parser.add_argument('--out_channels',
-                        nargs='+',
-                        default=[32, 64, 64, 128],
-                        type=int)
+    parser.add_argument("--device", type=str, default="cuda:0")
+    parser.add_argument('--dataset', type=str, default='vocaset')
+    parser.add_argument("--result_dir", type=str, default='../Data/scantalk_extension/inference_exp')#f'../../papers/ScanTalk/res_ICT/meshes/meshes_{str(i).zfill(2)}')
+    parser.add_argument("--reference_mesh_file", type=str, default="../datasets/VOCA_training/templates/FaceTalk_170809_00138_TA_remeshed_UpDown.ply") #"../datasets/VOCA_training/templates/FaceTalk_170809_00138_TA_remeshed_UpDown.ply", #"../datasets/VOCA_training/templates/FaceTalk_170809_00138_TA.ply", #"../datasets/COMA_scans/COMA_FaceTalk_170809_00138_TA.ply", #"../datasets/other/arnold_aligned.ply",#f'../datasets/ICT/head_and_neck/{str(i).zfill(2)}.ply', #'../datasets/VOCA_training/templates/FaceTalk_170725_00137_TA.ply' ,#'../datasets/ICT/head_and_neck/01.ply',  #'../datasets/ICT/head_and_neck/00.ply' ,#'../datasets/VOCA_training/templates/FaceTalk_170809_00138_TA.ply' ,#'../datasets/multiface/data/templates/20171024.ply', #'../Data/VOCA/res/Results_Actor/Meshes_Training/10/frame_000.ply' ,#'../datasets/ICT/narrow_face_area/33.ply',#'./template/flame_model/FLAME_sample.ply',
+    parser.add_argument("--sample_audio", type=str, default='../Data/VOCA/res/TH/photo.wav') # '../datasets/VOCA_training/wav_test/FaceTalk_170809_00138_TA_sentence35.wav')#'../Data/VOCA/res/TH/photo.wav')  #FaceTalk_170809_00138_TA_sentence40.wav
+    parser.add_argument("--model_path", type=str,
+                        default='../Data/d2d_ScanTalk_DiffuserNet_Encoder_Decoder_Faces_MSE_Multidataset_VOCA_and_BIWI_and_Multiface_Hubert.pth.tar')#'../Data/d2d_ScanTalk_DiffuserNet_Encoder_Decoder_Faces_MSE_Multidataset_VOCA_and_BIWI_and_Multiface_Hubert.pth.tar')  #ScanTalk_DiffuserNet_Encoder_Decoder_Faces_MSE_Multidataset_VOCA_and_BIWI_and_Multiface.pth.tar')  #'ScanTalk_DiffusionNet_Encoder_Decoder300epochsMSE_VOCA_wav2vec.pth.tar')
     parser.add_argument('--latent_channels', type=int, default=32)
     parser.add_argument('--in_channels', type=int, default=3)
-    parser.add_argument('--seq_length', type=int, default=[9, 9, 9, 9], nargs='+')
-    parser.add_argument('--dilation', type=int, default=[1, 1, 1, 1], nargs='+')
 
     args = parser.parse_args()
 
     infer(args)
+    render(args)
+
 
 if __name__ == "__main__":
     main()
+
+

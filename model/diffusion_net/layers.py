@@ -10,6 +10,7 @@ import scipy.sparse.linalg as sla
 import numpy as np
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
 from .utils import toNP
 from .geometry import to_basis, from_basis
@@ -130,20 +131,19 @@ class SpatialGradientFeatures(nn.Module):
 
 
 class MiniMLP(nn.Sequential):
-    '''
+    """
     A simple MLP with configurable hidden layer sizes.
-    '''
+    """
 
-    def __init__(self, layer_sizes, dropout=False, activation=nn.ReLU, name="miniMLP"):
+    def __init__(self, layer_sizes, dropout=0.5, use_bn=False, activation=nn.ReLU, name="miniMLP"):
         super(MiniMLP, self).__init__()
 
         for i in range(len(layer_sizes) - 1):
-            is_last = (i + 2 == len(layer_sizes))
+            is_last = i + 2 == len(layer_sizes)
 
-            if dropout and i > 0:
+            if dropout > 0. and i > 0:
                 self.add_module(
-                    name + "_mlp_layer_dropout_{:03d}".format(i),
-                    nn.Dropout(p=.5)
+                    name + "_mlp_layer_dropout_{:03d}".format(i), nn.Dropout(dropout)
                 )
 
             # Affine map
@@ -154,15 +154,15 @@ class MiniMLP(nn.Sequential):
                     layer_sizes[i + 1],
                 ),
             )
+            if use_bn:
+                self.add_module(
+                    name + "_mlp_layer_bn_{:03d}".format(i), nn.GroupNorm(num_groups=4, num_channels=layer_sizes[i + 1])
+                )
 
             # Nonlinearity
             # (but not on the last layer)
             if not is_last:
-                self.add_module(
-                    name + "_mlp_act_{:03d}".format(i),
-                    activation()
-                )
-
+                self.add_module(name + "_mlp_act_{:03d}".format(i), activation())
 
 class DiffusionNetBlock(nn.Module):
     """
@@ -173,16 +173,18 @@ class DiffusionNetBlock(nn.Module):
                  dropout=True,
                  diffusion_method='spectral',
                  with_gradient_features=True,
-                 with_gradient_rotations=True):
+                 with_gradient_rotations=True,
+                 normalization="None"):
         super(DiffusionNetBlock, self).__init__()
 
         # Specified dimensions
         self.C_width = C_width
         self.mlp_hidden_dims = mlp_hidden_dims
-
+        self.normalization = normalization
         self.dropout = dropout
         self.with_gradient_features = with_gradient_features
         self.with_gradient_rotations = with_gradient_rotations
+        self.normalization = normalization
 
         # Diffusion block
         self.diffusion = LearnedTimeDiffusion(self.C_width, method=diffusion_method)
@@ -195,7 +197,10 @@ class DiffusionNetBlock(nn.Module):
             self.MLP_C += self.C_width
 
         # MLPs
-        self.mlp = MiniMLP([self.MLP_C] + self.mlp_hidden_dims + [self.C_width], dropout=self.dropout)
+        if self.normalization=="None":
+            self.mlp = MiniMLP([self.MLP_C] + self.mlp_hidden_dims + [self.C_width], dropout=self.dropout, use_bn=False)
+        elif self.normalization=="GROUPNORM":
+            self.mlp = MiniMLP([self.MLP_C] + self.mlp_hidden_dims + [self.C_width], dropout=self.dropout, use_bn=True)
 
     def forward(self, x_in, mass, L, evals, evecs, gradX, gradY):
 
@@ -232,7 +237,15 @@ class DiffusionNetBlock(nn.Module):
             feature_combined = torch.cat((x_in, x_diffuse), dim=-1)
 
         # Apply the mlp
-        x0_out = self.mlp(feature_combined)
+        #feature_combined = feature_combined.permute(0, 2, 1)
+        if self.normalization=="GROUPNORM":
+            feature_combined = feature_combined.view(B * feature_combined.shape[1],
+                                                     feature_combined.shape[2])
+            x0_out = self.mlp(feature_combined)
+            x0_out = x0_out.view(B, x_in.shape[1], -1)
+        else:
+            x0_out = self.mlp(feature_combined)
+        #x0_out = x0_out.permute(0, 2, 1)
 
         # Skip connection
         x0_out = x0_out + x_in
@@ -243,7 +256,7 @@ class DiffusionNetBlock(nn.Module):
 class DiffusionNet(nn.Module):
 
     def __init__(self, C_in, C_out, C_width=128, N_block=4, last_activation=None, outputs_at='vertices',
-                 mlp_hidden_dims=None, dropout=True,
+                 mlp_hidden_dims=None, dropout=True, normalization="None",
                  with_gradient_features=True, with_gradient_rotations=True, diffusion_method='spectral'):
         """
         Construct a DiffusionNet.
@@ -275,7 +288,7 @@ class DiffusionNet(nn.Module):
         # Outputs
         self.last_activation = last_activation
         self.outputs_at = outputs_at
-        if outputs_at not in ['vertices', 'edges', 'faces', 'global_mean']: raise ValueError(
+        if outputs_at not in ['vertices', 'edges', 'faces', 'global_mean', 'global_max', 'project_on_eigvec']: raise ValueError(
             "invalid setting for outputs_at")
 
         # MLP options
@@ -283,6 +296,7 @@ class DiffusionNet(nn.Module):
             mlp_hidden_dims = [C_width, C_width]
         self.mlp_hidden_dims = mlp_hidden_dims
         self.dropout = dropout
+        self.normalization = normalization
 
         # Diffusion
         self.diffusion_method = diffusion_method
@@ -307,7 +321,8 @@ class DiffusionNet(nn.Module):
                                       dropout=dropout,
                                       diffusion_method=diffusion_method,
                                       with_gradient_features=with_gradient_features,
-                                      with_gradient_rotations=with_gradient_rotations)
+                                      with_gradient_rotations=with_gradient_rotations,
+                                      normalization=normalization)
 
             self.blocks.append(block)
             self.add_module("block_" + str(i_block), self.blocks[-1])
@@ -388,7 +403,7 @@ class DiffusionNet(nn.Module):
         elif self.outputs_at == 'faces':
             # Remap to faces
             x_gather = x.unsqueeze(-1).expand(-1, -1, -1, 3)
-            faces_gather = faces.unsqueeze(2).expand(-1, -1, x.shape[-1], -1)
+            faces_gather = faces.unsqueeze(2).expand(-1, -1, x.shape[-1], -1).to(dtype=torch.int64)
             xf = torch.gather(x_gather, 1, faces_gather)
             x_out = torch.mean(xf, dim=-1)
 
@@ -397,6 +412,23 @@ class DiffusionNet(nn.Module):
             # Using a weighted mean according to the point mass/area is discretization-invariant.
             # (A naive mean is not discretization-invariant; it could be affected by sampling a region more densely)
             x_out = torch.sum(x * mass.unsqueeze(-1), dim=-2) / torch.sum(mass, dim=-1, keepdim=True)
+
+        elif self.outputs_at == 'project_on_eigvec':
+            # Produce a single global mean ouput.
+            # Using a weighted mean according to the point mass/area is discretization-invariant.
+            # (A naive mean is not discretization-invariant; it could be affected by sampling a region more densely)
+            global_mean = torch.sum(x * mass.unsqueeze(-1), dim=-2) / torch.sum(mass, dim=-1, keepdim=True) #1st eigvec (mean)
+            eigvec1 = torch.sum(x * evecs[:, :, 1].unsqueeze(-1), dim=-2) / torch.sum(evecs[:, :, 1], dim=-1, keepdim=True)
+            eigvec2 = torch.sum(x * evecs[:, :, 2].unsqueeze(-1), dim=-2) / torch.sum(evecs[:, :, 2], dim=-1,
+                                                                                      keepdim=True)
+            eigvec3 = torch.sum(x * evecs[:, :, 3].unsqueeze(-1), dim=-2) / torch.sum(evecs[:, :, 3], dim=-1,
+                                                                                      keepdim=True)
+
+            x_out = torch.cat((global_mean, eigvec1, eigvec2, eigvec3), -1)
+
+        elif self.outputs_at == 'global_max':
+            # Produce a single global max ouput.
+            x_out = torch.max(x, dim=-2, keepdim=False)[0]
 
         # Apply last nonlinearity if specified
         if self.last_activation != None:
@@ -407,3 +439,5 @@ class DiffusionNet(nn.Module):
             x_out = x_out.squeeze(0)
 
         return x_out
+
+
