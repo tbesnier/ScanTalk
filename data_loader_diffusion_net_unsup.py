@@ -14,6 +14,7 @@ sys.path.append('./model/diffusion-net/src')
 import model.diffusion_net as diffusion_net
 
 
+
 class Dataset(data.Dataset):
     """Custom data.Dataset compatible with data.DataLoader."""
 
